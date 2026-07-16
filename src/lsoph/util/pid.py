@@ -97,9 +97,15 @@ def get_fd_path(pid: int, fd: int) -> bytes:
     if not psutil.pid_exists(pid):
         raise KeyError(f"PID {pid} does not exist.")
 
-    proc = psutil.Process(pid)
+    # Any inability to read the process's fds (permissions, gone, zombie) means
+    # "not found" to callers, which only handle KeyError -- don't leak psutil's
+    # AccessDenied/NoSuchProcess up the stack.
+    try:
+        proc = psutil.Process(pid)
+        fds = [f for f in proc.open_files() if f.fd == fd]
+    except (psutil.Error, OSError) as e:
+        raise KeyError(f"Cannot read fds for PID {pid}: {e}") from e
 
-    fds = list(f for f in proc.open_files() if f.fd == fd)
     if not fds:
         raise KeyError(f"File descriptor {fd} not found for PID {pid}.")
 
