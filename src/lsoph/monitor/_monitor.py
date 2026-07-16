@@ -379,16 +379,12 @@ class Monitor(Versioned):
         # Handle cases with ignored paths
         if new_is_ignored:
             if success and not old_is_ignored and old_path in self.files:
-                self.delete(
-                    pid, old_path, True, timestamp, {"renamed_to_ignored": new_path}
-                )
+                self.delete(pid, old_path, True, timestamp, renamed_to_ignored=new_path)
             return
 
         if old_is_ignored:
             if success:
-                self.stat(
-                    pid, new_path, True, timestamp, {"renamed_from_ignored": old_path}
-                )
+                self.stat(pid, new_path, True, timestamp, renamed_from_ignored=old_path)
             return
 
         # Handle rename failure
@@ -419,9 +415,7 @@ class Monitor(Versioned):
         # Handle successful rename
         old_info = self.files.get(old_path)
         if not old_info:
-            self.stat(
-                pid, new_path, True, timestamp, {"renamed_from_unknown": old_path}
-            )
+            self.stat(pid, new_path, True, timestamp, renamed_from_unknown=old_path)
             return
 
         try:
@@ -432,7 +426,7 @@ class Monitor(Versioned):
                 old_path,
                 True,
                 timestamp,
-                {"error": "Rename target state creation failed"},
+                error="Rename target state creation failed",
             )
             return
 
@@ -481,7 +475,7 @@ class Monitor(Versioned):
 
         fds_to_close = list(self.pid_fd_map.get(pid, {}).keys())
         for fd in fds_to_close:
-            self.close(pid, fd, True, timestamp, {"process_exited": True})
+            self.close(pid, fd, True, timestamp, process_exited=True)
 
         # Ensure PID is removed
         if pid in self.pid_fd_map:
