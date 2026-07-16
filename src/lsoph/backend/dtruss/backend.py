@@ -22,6 +22,7 @@ Runtime notes to validate on a real host:
 
 import asyncio
 import logging
+import os
 import shutil
 import time
 from collections.abc import AsyncIterator
@@ -78,8 +79,10 @@ class Dtruss(TracerBackend):
         self, lines: AsyncIterator[bytes], attach_ids: list[int] | None
     ) -> None:
         initial_pids: set[int] = set(attach_ids or [])
-        # dtruss reports absolute paths, so no CWD map is needed to resolve them.
+        # dtruss reports absolute paths, but keep a CWD fallback (our launch dir in
+        # run mode) for consistency with the other tracers.
         cwd_map: dict[int, bytes] = {}
+        default_cwd = None if attach_ids else os.fsencode(os.getcwd())
 
         processed = 0
         async for raw_line in lines:
@@ -90,6 +93,8 @@ class Dtruss(TracerBackend):
             if event is None:
                 continue
             processed += 1
-            await process_syscall_event(event, self.monitor, cwd_map, initial_pids)
+            await process_syscall_event(
+                event, self.monitor, cwd_map, initial_pids, default_cwd
+            )
             await asyncio.sleep(0)  # Yield control for UI responsiveness.
         log.info(f"dtruss event processing finished. Processed {processed} events.")

@@ -146,6 +146,8 @@ class Ktrace(TracerBackend):
         parser = KdumpParser()
         cwd_map: dict[int, bytes] = {}
         initial_pids: set[int] = set(attach_ids or [])
+        # Run mode: fall back to our launch directory for relative paths.
+        default_cwd = None if attach_ids else os.fsencode(os.getcwd())
 
         processed = 0
         async for raw_line in lines:
@@ -156,7 +158,9 @@ class Ktrace(TracerBackend):
             if event is None:
                 continue
             processed += 1
-            await process_syscall_event(event, self.monitor, cwd_map, initial_pids)
+            await process_syscall_event(
+                event, self.monitor, cwd_map, initial_pids, default_cwd
+            )
             await asyncio.sleep(0)  # Yield control for UI responsiveness.
         log.info(f"kdump event processing finished. Processed {processed} events.")
 

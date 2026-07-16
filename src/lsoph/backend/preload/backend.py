@@ -198,11 +198,10 @@ class Preload(TracerBackend):
 
     @staticmethod
     def _resolve(pid: int, path: bytes) -> bytes:
-        """Make a path absolute (bytes). Relative paths are best-effort resolved
-        against the process's current working directory."""
+        """Make a path absolute (bytes). Relative paths resolve against the
+        process's CWD, falling back to our launch directory (which the traced
+        command inherits in run mode) if the process is already gone."""
         if os.path.isabs(path):
             return os.path.normpath(path)
-        cwd = pid_get_cwd(pid)
-        if cwd:
-            return os.path.normpath(os.path.join(cwd, path))
-        return path
+        cwd = pid_get_cwd(pid) or os.fsencode(os.getcwd())
+        return os.path.normpath(os.path.join(cwd, path))

@@ -3,6 +3,7 @@
 
 import asyncio
 import logging
+import os
 import shutil
 from collections.abc import AsyncIterator
 from typing import Set
@@ -101,6 +102,10 @@ class Strace(TracerBackend):
     ) -> None:
         initial_pids: Set[int] = set(attach_ids or [])
         cwd_map: dict[int, bytes] = {}
+        # In run mode the traced command inherits our launch directory; use it as
+        # the CWD fallback so relative paths still resolve even if the process is
+        # gone by the time we dispatch its events.
+        default_cwd = None if attach_ids else os.fsencode(os.getcwd())
         for pid in initial_pids:
             cwd = pid_get_cwd(pid)
             if cwd:
@@ -121,6 +126,8 @@ class Strace(TracerBackend):
             if self.should_stop:
                 break
             processed += 1
-            await process_syscall_event(event, self.monitor, cwd_map, initial_pids)
+            await process_syscall_event(
+                event, self.monitor, cwd_map, initial_pids, default_cwd
+            )
             await asyncio.sleep(0)  # Yield control for UI responsiveness.
         log.info(f"Strace event processing finished. Processed {processed} events.")

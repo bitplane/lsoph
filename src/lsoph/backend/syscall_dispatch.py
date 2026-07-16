@@ -27,8 +27,15 @@ async def process_syscall_event(
     monitor: Monitor,
     cwd_map: dict[int, bytes],
     initial_pids: set[int],
+    default_cwd: bytes | None = None,
 ):
-    """Update Monitor and CWD state (bytes) from a single Syscall event."""
+    """Update Monitor and CWD state (bytes) from a single Syscall event.
+
+    default_cwd is the fallback working directory used when a PID's own CWD can't
+    be read from /proc (e.g. the process already exited). In run mode this is the
+    directory the command was launched in, which it inherits -- so relative paths
+    resolve even for short-lived processes that are gone by the time we dispatch.
+    """
     pid = event.pid
     syscall_name = event.syscall
 
@@ -39,20 +46,16 @@ async def process_syscall_event(
         and event.child_pid is not None
     ):
         child_pid = event.child_pid
-        parent_cwd = cwd_map.get(pid)
-        if parent_cwd:
-            cwd_map[child_pid] = parent_cwd
+        child_cwd = cwd_map.get(pid) or pid_get_cwd(child_pid) or default_cwd
+        if child_cwd:
+            cwd_map[child_pid] = child_cwd
         else:
-            child_cwd = pid_get_cwd(child_pid)
-            if child_cwd:
-                cwd_map[child_pid] = child_cwd
-            else:
-                log.warning(f"Could not determine CWD for new child PID {child_pid}.")
+            log.warning(f"Could not determine CWD for new child PID {child_pid}.")
         return
 
     # 2. Ensure CWD is known for other syscalls (needed to resolve relative paths).
     if pid not in cwd_map and syscall_name not in EXIT_SYSCALLS:
-        cwd = pid_get_cwd(pid)
+        cwd = pid_get_cwd(pid) or default_cwd
         if cwd:
             cwd_map[pid] = cwd
         elif psutil.pid_exists(pid):

@@ -10,6 +10,7 @@ smoke-tested on a real FreeBSD host.
 
 import asyncio
 import logging
+import os
 import shutil
 import time
 from collections.abc import AsyncIterator
@@ -69,6 +70,9 @@ class Truss(TracerBackend):
     ) -> None:
         initial_pids: set[int] = set(attach_ids or [])
         cwd_map: dict[int, bytes] = {}
+        # Run mode: the command inherits our launch directory; use it as the CWD
+        # fallback for relative paths from processes we can't look up.
+        default_cwd = None if attach_ids else os.fsencode(os.getcwd())
         for pid in initial_pids:
             cwd = pid_get_cwd(pid)
             if cwd:
@@ -85,6 +89,8 @@ class Truss(TracerBackend):
             if event is None:
                 continue
             processed += 1
-            await process_syscall_event(event, self.monitor, cwd_map, initial_pids)
+            await process_syscall_event(
+                event, self.monitor, cwd_map, initial_pids, default_cwd
+            )
             await asyncio.sleep(0)  # Yield control for UI responsiveness.
         log.info(f"Truss event processing finished. Processed {processed} events.")
