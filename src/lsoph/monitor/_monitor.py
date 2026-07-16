@@ -104,11 +104,17 @@ class Monitor(Versioned):
     @changes
     def _remove_fd(self, pid: int, fd: int) -> FileInfo | None:
         """Removes an FD mapping and updates FileInfo state."""
-        self._update_pid_fd_map(pid, fd, None)
-
+        # Resolve the path from the cached mapping *before* removing it.
+        # Otherwise get_path falls through to a /proc scan for an fd that is
+        # already gone, which fails (or raises) and loses the close event.
         try:
             path = self.get_path(pid, fd)
         except KeyError:
+            path = None
+
+        self._update_pid_fd_map(pid, fd, None)
+
+        if path is None:
             return None
 
         info = self.files.get(path)

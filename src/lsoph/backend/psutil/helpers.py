@@ -151,22 +151,3 @@ def _get_process_open_files(
     ) as e:
         log.debug(f"Error accessing connections for PID {pid}: {type(e).__name__}")
     return open_files_data
-
-
-def _get_process_descendants(
-    proc: psutil.Process,
-) -> list[int]:  # Use list
-    """Safely get all descendant PIDs."""
-    if not PSUTIL_AVAILABLE:
-        return []  # Guard clause
-    try:
-        # Use list comprehension directly
-        return [p.pid for p in proc.children(recursive=True)]
-    except (
-        psutil.NoSuchProcess,
-        psutil.AccessDenied,
-        psutil.ZombieProcess,
-        Exception,
-    ) as e:
-        log.debug(f"Could not get descendants for PID {proc.pid}: {type(e).__name__}")
-        return []
