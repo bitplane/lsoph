@@ -185,17 +185,26 @@ class LsophApp(App[None]):
             and not self._backend_stopped_notified
         ):
             self._backend_stopped_notified = True
-            status_msg = "Error: Monitoring backend stopped unexpectedly!"
-            log_msg = f"Backend worker {worker.name} stopped unexpectedly (state: {worker.state})."
-            log.error(log_msg + " Check previous logs for potential errors.")
-            self.update_status(status_msg)
-            self.notify(
-                f"{status_msg} Check logs for details.",
-                title="Backend Stopped Unexpectedly",
-                severity="error",
-                timeout=10,
-            )
             self._backend_worker = None
+            if worker.state == WorkerState.ERROR:
+                log.error(
+                    f"Backend worker {worker.name} failed (state: {worker.state})."
+                )
+                self.update_status("Error: monitoring backend failed. Check logs.")
+                self.notify(
+                    "Monitoring backend failed. Check logs for details.",
+                    title="Backend Error",
+                    severity="error",
+                    timeout=10,
+                )
+            else:
+                # SUCCESS/finished: the traced program exited and its stream ended.
+                # That is a normal end of monitoring, not an error.
+                log.info(
+                    f"Backend worker {worker.name} finished (state: {worker.state})."
+                )
+                self.update_status("Monitoring finished — target exited.")
+                self.notify("Monitoring finished — target exited.", timeout=5)
         current_version = self.monitor.version
         if current_version != self.last_monitor_version:
             self.last_monitor_version = current_version

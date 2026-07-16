@@ -2,6 +2,7 @@
 
 import logging
 import os
+from os import fsdecode  # bound directly so tests that monkeypatch `os` don't hide it
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ def _truncate_directory(directory: str, max_dir_len: int) -> str:
     return f"{start_part}...{end_part}"[:max_dir_len]
 
 
-def short_path(path: str | os.PathLike, max_length: int, cwd: str = CWD) -> str:
+def short_path(path: str | bytes | os.PathLike, max_length: int, cwd: str = CWD) -> str:
     """
     Shortens a file path string to fit max_length:
     1. Tries to make path relative to CWD.
@@ -52,8 +53,10 @@ def short_path(path: str | os.PathLike, max_length: int, cwd: str = CWD) -> str:
     3. If filename alone is too long, truncates filename from the left ("...name").
     4. If path is still too long but filename fits, truncates directory in the middle ("dir...ory/name").
     """
-    # unlike gemini's code, the shorter the better here
-    path_str = _relative_path(str(path), cwd)
+    # unlike gemini's code, the shorter the better here.
+    # Paths arrive as bytes from the Monitor; fsdecode instead of str() so we get
+    # the path, not its b'...' repr.
+    path_str = _relative_path(fsdecode(path), cwd)
 
     if len(path_str) <= max_length:
         return path_str

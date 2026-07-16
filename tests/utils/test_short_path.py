@@ -6,6 +6,14 @@ import lsoph.util.short_path
 from lsoph.util.short_path import short_path
 
 
+def test_bytes_path_is_decoded_not_repr():
+    """A bytes path (as the Monitor stores them) renders as the path, not b'...'."""
+    result = short_path(b"/etc/hostname", 100, cwd="/nowhere/")
+
+    assert result == "/etc/hostname"
+    assert "b'" not in result
+
+
 def make_mock_os(sep):
     def split(path):
         parts = str(path).rsplit(sep, 1)
