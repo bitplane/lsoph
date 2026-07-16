@@ -39,15 +39,15 @@ def test_open_read_close_sequence_is_tracked():
     assert info.bytes_read == 128
 
 
-def test_failed_open_is_recorded_as_error():
-    """A failed open (ERR#2) records the path with error status, not open."""
+def test_failed_open_is_recorded_as_enoent_error():
+    """A failed open (ERR#2 -> ENOENT) records error status and the ENOENT flag."""
     monitor = _run(
         ["100: open(\"/nope\",O_RDONLY,00) ERR#2 'No such file or directory'"]
     )
 
     info = monitor.files[b"/nope"]
     assert info.status == "error"
-    assert not info.is_open
+    assert info.last_error_enoent is True
 
 
 def test_process_exit_closes_open_fds():

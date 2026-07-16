@@ -79,6 +79,20 @@ def test_renameat2_transfers_state_to_new_path():
     assert b"/tmp/old" not in monitor.files
 
 
+def test_failed_open_sets_enoent_flag():
+    """A failed open with ENOENT forwards the error so last_error_enoent is set."""
+    monitor = Monitor(identifier="t")
+    event = _event(
+        "open", [b"/nope", "O_RDONLY", "0"], result_int=-1, error_name="ENOENT"
+    )
+
+    _dispatch(event, monitor)
+
+    info = monitor.files[b"/nope"]
+    assert info.status == "error"
+    assert info.last_error_enoent is True
+
+
 def test_missing_fd_is_skipped_without_raising():
     """A read on an unmapped fd (PID/FD gone) is swallowed by the guard."""
     monitor = Monitor(identifier="t")
