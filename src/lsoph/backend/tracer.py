@@ -14,7 +14,6 @@ import asyncio
 import logging
 import os
 import shlex
-import signal
 from abc import abstractmethod
 from collections.abc import AsyncIterator
 from enum import Enum
@@ -114,27 +113,21 @@ class TracerBackend(Backend):
         log.info(f"Executing tracer: {' '.join(shlex.quote(a) for a in argv)}")
         extra_env = self.build_env(output_path)
         env = {**os.environ, **extra_env} if extra_env else None
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *argv,
-                stdout=(
-                    asyncio.subprocess.PIPE
-                    if self.output_channel is OutputChannel.STDOUT
-                    else asyncio.subprocess.DEVNULL
-                ),
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-                # Own session -> the tracer is a process-group leader (pgid == pid),
-                # so stop() can signal the whole traced tree at once. See
-                # _terminate_process.
-                start_new_session=True,
-            )
-        except (FileNotFoundError, OSError) as e:
-            log.error(f"Failed to launch tracer {type(self).__name__}: {e}")
+        # _spawn launches in a new session (process-group leader) so stop() can
+        # signal the whole traced tree; see Backend._terminate.
+        process = await self._spawn(
+            argv,
+            stdout=(
+                asyncio.subprocess.PIPE
+                if self.output_channel is OutputChannel.STDOUT
+                else asyncio.subprocess.DEVNULL
+            ),
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        if process is None:
             return
 
-        self._process = process
-        self.monitor.backend_pid = process.pid
         log.info(f"{type(self).__name__} tracer started with PID {process.pid}")
 
         lines = self._output_lines(process, output_path)
@@ -191,50 +184,8 @@ class TracerBackend(Backend):
         self._consumer_task = None
         self._stderr_task = None
 
-        await self._terminate_process()
+        await self._terminate_process()  # group SIGTERM -> SIGKILL from Backend.
         log.info(f"{type(self).__name__} backend stopped.")
-
-    async def _terminate_process(self):
-        """Terminate the tracer and every process it spawned.
-
-        We launch the tracer in its own session (start_new_session=True), so its
-        pid is also its process-group id. Signalling the whole group tears down
-        the traced child tree too. Killing only the tracer would orphan the
-        children -- and because they inherit the tracer's stderr pipe, that also
-        keeps asyncio's wait() from returning until the children exit on their
-        own (a shutdown hang for any long-running target).
-        """
-        process = self._process
-        self._process = None
-        if not process or process.returncode is not None:
-            return
-        pgid = process.pid  # == pgid, guaranteed by start_new_session=True
-
-        if not await self._signal_group(process, pgid, signal.SIGTERM, timeout=1.0):
-            log.warning(f"Tracer group {pgid} ignored SIGTERM; sending SIGKILL.")
-            await self._signal_group(process, pgid, signal.SIGKILL, timeout=None)
-
-    async def _signal_group(
-        self,
-        process: asyncio.subprocess.Process,
-        pgid: int,
-        sig: int,
-        timeout: float | None,
-    ) -> bool:
-        """Signal the tracer's process group, then wait for it to exit. Returns
-        True if the tracer exited (or was already gone), False on timeout."""
-        try:
-            os.killpg(pgid, sig)
-        except ProcessLookupError:
-            return True  # group already gone
-        try:
-            if timeout is None:
-                await process.wait()
-            else:
-                await asyncio.wait_for(process.wait(), timeout=timeout)
-            return True
-        except asyncio.TimeoutError:
-            return False
 
     # --- Output streaming ---
 

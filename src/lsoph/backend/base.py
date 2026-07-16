@@ -3,6 +3,8 @@
 
 import asyncio
 import logging
+import os
+import signal
 from abc import ABC, abstractmethod
 
 from lsoph.monitor import Monitor
@@ -57,13 +59,16 @@ class Backend(ABC):
         attach_task: asyncio.Task | None = None
 
         try:
-            # Start the process asynchronously
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                stdout=asyncio.subprocess.DEVNULL,  # Redirect stdio if needed, or capture
-                stderr=asyncio.subprocess.PIPE,  # Capture stderr for errors
+            # Start the process in its own session so stop() can signal the whole
+            # tree (the command plus anything it spawns).
+            process = await self._spawn(
+                command,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
             )
-            self._process = process  # Store process handle for stop()
+            if process is None:
+                await self.stop()
+                return
             pid = process.pid
             log.info(f"Command '{' '.join(command)}' started with PID: {pid}")
 
@@ -145,35 +150,81 @@ class Backend(ABC):
             log.info(f"Finished run_command for: {' '.join(command)}")
             self._process = None
 
+    async def _spawn(
+        self,
+        argv: list[str],
+        *,
+        stdout: int,
+        stderr: int,
+        env: dict[str, str] | None = None,
+    ) -> asyncio.subprocess.Process | None:
+        """Launch a monitored subprocess in its own session, storing it as
+        self._process. start_new_session makes the child a process-group leader
+        (pgid == pid) so _terminate can signal its whole tree at once. Returns
+        None (logged) if the executable can't be launched.
+
+        This is the single spawn point for backend-managed processes -- both the
+        run-mode command (PollingBackend) and external tracers (TracerBackend)
+        go through it, so their lifecycle handling cannot diverge.
+        """
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *argv,
+                stdout=stdout,
+                stderr=stderr,
+                env=env,
+                start_new_session=True,
+            )
+        except (FileNotFoundError, OSError) as e:
+            log.error(f"Failed to launch {argv[0]}: {e}")
+            return None
+        self._process = process
+        self.monitor.backend_pid = process.pid
+        return process
+
     async def _terminate_process(self):
-        """Helper to terminate the managed subprocess."""
-        if self._process and self._process.returncode is None:
-            pid = self._process.pid
-            log.info(f"Terminating command process (PID: {pid})...")
-            try:
-                self._process.terminate()
-                # Wait briefly for termination
-                await asyncio.wait_for(self._process.wait(), timeout=1.0)
-                log.debug(f"Command process {pid} terminated gracefully.")
-            except asyncio.TimeoutError:
-                log.warning(
-                    f"Command process {pid} did not terminate gracefully, killing."
-                )
-                try:
-                    self._process.kill()
-                    await self._process.wait()  # Wait for kill
-                    log.debug(f"Command process {pid} killed.")
-                except ProcessLookupError:
-                    log.warning(f"Command process {pid} already exited before kill.")
-                except Exception as kill_err:
-                    log.exception(f"Error killing process {pid}: {kill_err}")
-            except ProcessLookupError:  # Process already exited
-                log.warning(f"Command process {pid} already exited before terminate.")
-            except Exception as term_err:
-                log.exception(
-                    f"Error during command process termination for PID {pid}: {term_err}"
-                )
-        self._process = None
+        """Terminate the managed subprocess and the whole process tree it leads."""
+        process, self._process = self._process, None
+        await self._terminate(process)
+
+    async def _terminate(self, process: asyncio.subprocess.Process | None):
+        """Tear down a subprocess and every process in its group.
+
+        Subprocesses are spawned via _spawn (start_new_session=True), so each is
+        a process-group leader; signalling the group tears down children too.
+        Killing only the leader would orphan wrappers' children (strace's tracee,
+        watch's cat, ...) -- and because they inherit the leader's pipes, that
+        also stops asyncio's wait() from returning until they exit on their own.
+        """
+        if not process or process.returncode is not None:
+            return
+        if not await self._signal_group(process, signal.SIGTERM, timeout=1.0):
+            log.warning(
+                f"Process group {process.pid} ignored SIGTERM; sending SIGKILL."
+            )
+            await self._signal_group(process, signal.SIGKILL, timeout=None)
+
+    async def _signal_group(
+        self,
+        process: asyncio.subprocess.Process,
+        sig: int,
+        timeout: float | None,
+    ) -> bool:
+        """Signal the process's group, then wait for it to exit. Returns True if
+        it exited (or was already gone), False on timeout. process.pid is the
+        pgid, guaranteed by _spawn's start_new_session=True."""
+        try:
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            return True  # group already gone
+        try:
+            if timeout is None:
+                await process.wait()
+            else:
+                await asyncio.wait_for(process.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            return False
 
     async def stop(self):
         """Signals the backend's running task to stop and terminates the managed process if any."""

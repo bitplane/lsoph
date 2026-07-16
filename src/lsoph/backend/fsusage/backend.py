@@ -73,11 +73,18 @@ class Fsusage(TracerBackend):
             log.error("Fsusage.run_command called with empty command.")
             return
 
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
+        # Own session (process-group leader) so _terminate can tear down the
+        # whole tree; matches how the shared base spawns processes.
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except (FileNotFoundError, OSError) as e:
+            log.error(f"Failed to launch command {command[0]}: {e}")
+            return
         log.info(f"Launched command PID {process.pid}; attaching fs_usage.")
 
         async def _stop_when_target_exits():
@@ -90,17 +97,7 @@ class Fsusage(TracerBackend):
             await self.attach([process.pid])
         finally:
             watcher.cancel()
-            if process.returncode is None:
-                try:
-                    process.terminate()
-                    await asyncio.wait_for(process.wait(), timeout=1.0)
-                except (asyncio.TimeoutError, ProcessLookupError):
-                    with_kill = process.returncode is None
-                    if with_kill:
-                        try:
-                            process.kill()
-                        except ProcessLookupError:
-                            pass
+            await self._terminate(process)  # shared group SIGTERM -> SIGKILL
 
     async def process_lines(
         self, lines: AsyncIterator[bytes], attach_ids: list[int] | None

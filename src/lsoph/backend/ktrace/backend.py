@@ -123,10 +123,13 @@ class Ktrace(TracerBackend):
         ktrace = shutil.which("ktrace")
         argv = [ktrace, "-i", "-t", KTRACE_POINTS, "-f", self._tracefile, *command]
         try:
+            # Own session (process-group leader) so _terminate can signal the
+            # whole traced tree; matches how the shared base spawns processes.
             self._run_proc = await asyncio.create_subprocess_exec(
                 *argv,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
+                start_new_session=True,
             )
         except (FileNotFoundError, OSError) as e:
             log.error(f"Failed to launch ktrace command: {e}")
@@ -179,15 +182,9 @@ class Ktrace(TracerBackend):
         return await proc.wait()
 
     async def _terminate_run_proc(self):
-        if self._run_proc and self._run_proc.returncode is None:
-            try:
-                self._run_proc.terminate()
-                await asyncio.wait_for(self._run_proc.wait(), timeout=1.0)
-            except (asyncio.TimeoutError, ProcessLookupError):
-                try:
-                    self._run_proc.kill()
-                except ProcessLookupError:
-                    pass
+        # Reuse the shared group SIGTERM -> SIGKILL ladder so the traced tree is
+        # torn down the same way everywhere.
+        await self._terminate(self._run_proc)
         self._run_proc = None
 
     def _remove_tracefile(self):
