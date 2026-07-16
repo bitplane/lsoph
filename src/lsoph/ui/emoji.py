@@ -2,7 +2,6 @@
 """Generates emoji history strings for file activity."""
 
 import logging
-from typing import Any
 
 from lsoph.monitor import FileInfo  # FileInfo.path is bytes
 

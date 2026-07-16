@@ -9,8 +9,6 @@ Defines the pyparsing grammar for strace syscall output lines.
 """
 
 import logging
-import re
-from typing import Any, Dict, List, Optional
 
 import pyparsing as pp
 from pyparsing import pyparsing_common as ppc

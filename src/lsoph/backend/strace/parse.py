@@ -7,30 +7,17 @@ Yields Syscall objects with parsed arguments (int/str). Handles missing PIDs on 
 
 import asyncio
 import logging
-import os
-import re
 import time
 from collections.abc import AsyncIterator
-from typing import Any, Dict, List, Optional  # Use Dict, List, Optional from typing
+from typing import Any, List, Optional
 
-# --- Import pyparsing (assume available) ---
 import pyparsing as pp
-from pyparsing import pyparsing_common as ppc
 
 from lsoph.log import TRACE_LEVEL_NUM
 from lsoph.monitor import Monitor
 
-# Import helpers for result parsing
-from . import helpers
-
-# Import the line parser definition
-from .parser_defs import parse_line, resumed_suffix_parser  # Import parser
-
-# Import the Syscall dataclass (args are List[Any] for this parser)
-from .syscall import EXIT_SYSCALLS, PROCESS_SYSCALLS, RESUME_SYSCALLS, Syscall
-
-# -------------------------------------------
-
+from .parser_defs import parse_line, resumed_suffix_parser
+from .syscall import PROCESS_SYSCALLS, Syscall
 
 log = logging.getLogger(__name__)
 

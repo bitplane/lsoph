@@ -19,7 +19,7 @@ from lsoph.monitor import FileInfo  # FileInfo.path is bytes
 from lsoph.util.short_path import short_path
 
 # Import the emoji map from the emoji module
-from .emoji import DEFAULT_EMOJI, EVENT_EMOJI_MAP, STATUS_EMOJI_MAP
+from .emoji import DEFAULT_EMOJI, EVENT_EMOJI_MAP
 
 log = logging.getLogger("lsoph.ui.detail")
 
@@ -80,7 +80,8 @@ class DetailScreen(Screen):
 
             history = self.file_info.event_history
             log.debug(
-                f"DetailScreen on_mount: Populating table with {len(history)} history events for {os.fsdecode(self.file_info.path)!r}."
+                f"DetailScreen on_mount: Populating table with {len(history)} "
+                f"history events for {os.fsdecode(self.file_info.path)!r}."
             )
 
             if not history:

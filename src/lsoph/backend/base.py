@@ -3,9 +3,7 @@
 
 import asyncio
 import logging
-import subprocess  # Keep for type hint if needed, use asyncio below
 from abc import ABC, abstractmethod
-from typing import Any, Coroutine  # Added Coroutine, Any
 
 from lsoph.monitor import Monitor
 

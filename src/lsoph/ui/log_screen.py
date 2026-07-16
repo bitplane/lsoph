@@ -7,10 +7,9 @@ from collections import deque
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import VerticalScroll  # Keep if needed by RichLog internally
 from textual.screen import Screen
 from textual.timer import Timer
-from textual.widgets import Footer, Header, RichLog, Static
+from textual.widgets import Footer, Header, RichLog
 
 log = logging.getLogger("lsoph.ui.log")
 
@@ -120,7 +119,7 @@ class LogScreen(Screen):
             log_widget.clear()
             self.notify("Logs cleared.", timeout=1)
             log.info("Log display cleared by user.")
-        except Exception as e:
+        except Exception:
             log.exception("Error clearing log display.")
             self.notify("Error clearing log.", severity="error", timeout=3)
 

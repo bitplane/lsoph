@@ -195,7 +195,7 @@ class Strace(Backend):
             reader = asyncio.StreamReader(loop=loop)
             protocol = asyncio.StreamReaderProtocol(reader, loop=loop)
             transport, _ = await loop.connect_read_pipe(lambda: protocol, fifo_file_obj)
-            log.debug(f"Connected FIFO read via file object to StreamReader")
+            log.debug("Connected FIFO read via file object to StreamReader")
 
             while not stop_event.is_set():
                 try:

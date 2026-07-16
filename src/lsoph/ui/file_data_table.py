@@ -7,13 +7,11 @@ Handles bytes paths from the Monitor and decodes for display.
 import logging
 import os  # For os.fsdecode
 import time
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from rich.text import Text
 from textual import events
-from textual.coordinate import Coordinate
 from textual.widgets import DataTable
-from textual.widgets.data_table import CellKey, RowKey
 
 from lsoph.monitor import FileInfo
 
@@ -373,8 +371,6 @@ class FileDataTable(DataTable):
                         )
             elif final_row_count <= 0:
                 pass  # Table empty, do nothing
-            # else: # Target index out of bounds
-            #     log.warning(f"Target cursor index {target_cursor_index} out of bounds after update (row_count={final_row_count}). Cursor not moved.")
 
         # If target_cursor_index was -1, cursor is not moved.
 

@@ -1,5 +1,5 @@
 # the things that don't have output files or run every time
-.PHONY: help all install test dev coverage clean \
+.PHONY: help all install test lint dev coverage clean \
 		pre-commit update-pre-commit
 
 
@@ -14,6 +14,9 @@ dev: .venv/.installed-dev pre-commit  ## prepare local repo and venv for dev
 
 test: .venv/.installed-dev  ## run the project's tests
 	scripts/test.sh $(PROJECT_NAME)
+
+lint: .venv/.installed-dev  ## run the flake8 linter
+	scripts/lint.sh
 
 coverage: .venv/.installed-dev scripts/coverage.sh  ## build the html coverage report
 	scripts/coverage.sh $(PROJECT_NAME)

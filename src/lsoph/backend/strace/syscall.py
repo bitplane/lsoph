@@ -3,10 +3,9 @@
 Common definitions for strace parsing, like the Syscall dataclass.
 Allows different parser implementations to use the same structure.
 """
-import os
 import time
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Any, List
 
 # Syscalls sets for faster lookup
 PROCESS_SYSCALLS = {"clone", "fork", "vfork"}

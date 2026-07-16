@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
 # Filename: src/lsoph/cli.py
 import argparse
-import asyncio
 import logging
-import os
 import shlex
 import sys
-from collections.abc import Coroutine
-from typing import Any, Type
 
 # Import backend base class and the discovered backends dictionary
 from lsoph.backend import BACKENDS, Backend  # Import BACKENDS dict
@@ -23,7 +19,6 @@ def parse_arguments(
     argv: list[str] = sys.argv,
 ) -> argparse.Namespace:
     """Parses command-line arguments for lsoph."""
-    log = logging.getLogger("lsoph.cli.args")
     backends = list(b for b in backends if backends[b].is_available())
 
     if not backends:
