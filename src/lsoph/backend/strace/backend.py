@@ -9,13 +9,13 @@ from typing import Set
 
 import psutil
 
-from lsoph.backend.strace import handlers
 from lsoph.monitor import Monitor
 from lsoph.util.pid import get_cwd as pid_get_cwd
 
+from ..syscall_dispatch import process_syscall_event
 from ..tracer import OutputChannel, TracerBackend
 from .parse import parse_strace_stream_pyparsing as parse_strace_stream
-from .syscall import EXIT_SYSCALLS, PROCESS_SYSCALLS, Syscall
+from .syscall import EXIT_SYSCALLS, PROCESS_SYSCALLS
 
 log = logging.getLogger(__name__)
 
@@ -46,67 +46,6 @@ DEFAULT_SYSCALLS = sorted(
     | set(IO_SYSCALLS)
     | set(EXIT_SYSCALLS)
 )
-
-
-async def _process_single_event(
-    event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes], initial_pids: Set[int]
-):
-    """
-    Processes a single Syscall event, updating state and CWD map (bytes).
-    Handles CWD inheritance for new processes.
-    """
-    pid = event.pid
-    syscall_name = event.syscall
-
-    # 1. Handle process creation CWD inheritance
-    if (
-        syscall_name in PROCESS_SYSCALLS
-        and event.success
-        and event.child_pid is not None
-    ):
-        child_pid = event.child_pid
-        parent_cwd = cwd_map.get(pid)
-        if parent_cwd:
-            cwd_map[child_pid] = parent_cwd
-        else:
-            child_cwd = pid_get_cwd(child_pid)
-            if child_cwd:
-                cwd_map[child_pid] = child_cwd
-            else:
-                log.warning(f"Could not determine CWD for new child PID {child_pid}.")
-        return
-
-    # 2. Ensure CWD is known for other syscalls
-    if pid not in cwd_map and syscall_name not in EXIT_SYSCALLS:
-        cwd = pid_get_cwd(pid)
-        if cwd:
-            cwd_map[pid] = cwd
-        elif psutil.pid_exists(pid):
-            log.warning(
-                f"Could not determine CWD for PID {pid} (still exists). "
-                "Relative paths may be incorrect."
-            )
-
-    # 3. Handle chdir/fchdir
-    if syscall_name in ["chdir", "fchdir"]:
-        handlers.update_cwd(pid, cwd_map, monitor, event)
-        return
-
-    # 4. Handle exit
-    if syscall_name in EXIT_SYSCALLS:
-        monitor.process_exit(pid, event.timestamp)
-        cwd_map.pop(pid, None)
-        return
-
-    # 5. Dispatch to generic handlers
-    handler = handlers.SYSCALL_HANDLERS.get(syscall_name)
-    if handler:
-        try:
-            handler(event, monitor, cwd_map)
-        except Exception:
-            log.exception(f"Handler error for {syscall_name} (event: {event!r})")
-    else:
-        log.debug(f"No specific handler found for syscall: {syscall_name}")
 
 
 class Strace(TracerBackend):
@@ -182,6 +121,6 @@ class Strace(TracerBackend):
             if self.should_stop:
                 break
             processed += 1
-            await _process_single_event(event, self.monitor, cwd_map, initial_pids)
+            await process_syscall_event(event, self.monitor, cwd_map, initial_pids)
             await asyncio.sleep(0)  # Yield control for UI responsiveness.
         log.info(f"Strace event processing finished. Processed {processed} events.")
