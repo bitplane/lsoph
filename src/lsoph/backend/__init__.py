@@ -21,9 +21,11 @@ log = logging.getLogger("lsoph.backend")
 # --- Backend Discovery ---
 
 log.debug("Starting backend discovery...")
+# Order sets the default backend (the CLI picks the first available). Prefer
+# event-stream tracers over pollers, so e.g. the default is strace on Linux.
 BACKENDS: dict[str, Type[Backend]] = {
     backend.__name__.lower(): backend
-    for backend in (Lsof, Psutil, Strace, Truss, Fsusage, Dtruss, Ktrace, Preload)
+    for backend in (Strace, Truss, Dtruss, Ktrace, Fsusage, Preload, Psutil, Lsof)
     if backend.is_available()
 }
 
