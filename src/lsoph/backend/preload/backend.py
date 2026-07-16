@@ -89,6 +89,7 @@ class Preload(TracerBackend):
     """Run a command under an LD_PRELOAD shim that reports file access."""
 
     backend_name = "preload"
+    description = "LD_PRELOAD shim; run mode only; blind to static/raw-syscall programs"
     output_channel = OutputChannel.FIFO
 
     def __init__(self, monitor):

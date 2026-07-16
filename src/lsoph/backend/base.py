@@ -18,6 +18,8 @@ class Backend(ABC):
     # Class attribute intended to be overridden by subclasses
     # This name is used as the key in the BACKENDS dictionary
     backend_name: str = "base"
+    # One-line summary of what the backend can and cannot see, shown in --help.
+    description: str = ""
 
     def __init__(self, monitor: Monitor):
         """Initialize the backend."""

@@ -20,6 +20,7 @@ class Lsof(PollingBackend):
     """Polling backend that reads open files via the `lsof` command."""
 
     backend_name = "lsof"
+    description = "polls lsof(8); same sampling blind spots as psutil, but slower"
 
     def __init__(
         self,

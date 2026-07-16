@@ -23,6 +23,7 @@ class Psutil(PollingBackend):
     """Polling backend that reads open files via psutil. Uses bytes paths."""
 
     backend_name = "psutil"
+    description = "polls open fds; misses anything opened and closed between polls"
     # psutil is cheap enough to check for descendants every poll.
     child_check_interval = 1
 

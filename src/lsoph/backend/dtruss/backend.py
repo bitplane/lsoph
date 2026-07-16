@@ -38,6 +38,9 @@ class Dtruss(TracerBackend):
     """Async backend driving macOS/BSD `dtruss`. Works with bytes paths."""
 
     backend_name = "dtruss"
+    description = (
+        "dtrace tracer (macOS/BSD); needs root; not yet validated on real host"
+    )
     # dtruss writes its trace stream to stderr (via dtrace -o /dev/stderr).
     output_channel = OutputChannel.STDERR
 

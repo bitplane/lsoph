@@ -59,6 +59,7 @@ class Strace(TracerBackend):
     """Async backend implementation using strace. Works with bytes paths."""
 
     backend_name = "strace"
+    description = "traces syscalls; catches even short-lived opens; needs ptrace"
     output_channel = OutputChannel.FIFO
 
     def __init__(self, monitor: Monitor, syscalls: list[str] = DEFAULT_SYSCALLS):

@@ -39,6 +39,7 @@ class Ktrace(TracerBackend):
     """Async backend driving BSD `ktrace` + `kdump`. Works with bytes paths."""
 
     backend_name = "ktrace"
+    description = "BSD ktrace+kdump tracer; not yet validated on a real BSD host"
     # We read kdump's decoded text from its stdout.
     output_channel = OutputChannel.STDOUT
 

@@ -33,6 +33,7 @@ class Fsusage(TracerBackend):
     """Async backend driving macOS `fs_usage`. Works with bytes paths."""
 
     backend_name = "fsusage"
+    description = "macOS fs_usage; needs root; may miss a target's first events"
     output_channel = OutputChannel.STDOUT
 
     @staticmethod

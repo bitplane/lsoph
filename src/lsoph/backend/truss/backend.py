@@ -28,6 +28,7 @@ class Truss(TracerBackend):
     """Async backend driving FreeBSD `truss`. Works with bytes paths."""
 
     backend_name = "truss"
+    description = "FreeBSD syscall tracer; not yet validated on a real BSD host"
     output_channel = OutputChannel.FIFO
 
     @staticmethod

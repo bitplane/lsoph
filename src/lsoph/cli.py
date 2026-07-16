@@ -17,22 +17,27 @@ def parse_arguments(
     argv: list[str] = sys.argv,
 ) -> argparse.Namespace:
     """Parses command-line arguments for lsoph."""
-    backends = list(b for b in backends if backends[b].is_available())
+    available = [name for name, cls in backends.items() if cls.is_available()]
 
-    if not backends:
+    if not available:
         print(
             f"All backends unavailable: {', '.join(BACKENDS)}",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    default_backend = backends[0]
+    default_backend = available[0]
+
+    # One line per backend, stating what it is and what it cannot see.
+    backend_list = "\n".join(
+        f"  {name:<9}{backends[name].description}" for name in available
+    )
 
     parser = argparse.ArgumentParser(
         description="Monitors file access for a command or process using various backends.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=f"Available backends: {', '.join(backends)}\n"
-        f"Default backend: {default_backend}\n\n"
+        epilog=f"Backends (default: {default_backend}):\n"
+        f"{backend_list}\n\n"
         "Examples:\n"
         "  lsoph -p 1234 5678       # Attach to PIDs using default backend\n"
         "  lsoph -b strace sleep 10 # Run 'sleep 10' using strace backend\n"
@@ -42,7 +47,7 @@ def parse_arguments(
         "-b",
         "--backend",
         default=default_backend,
-        choices=backends,
+        choices=available,
         help=f"Monitoring backend to use (default: {default_backend})",
     )
     parser.add_argument(
