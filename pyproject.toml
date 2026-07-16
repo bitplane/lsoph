@@ -25,6 +25,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "black",
+    "isort",
     "flake8",
     "pre-commit",
     "pytest",
