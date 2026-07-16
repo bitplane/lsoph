@@ -6,6 +6,7 @@ Path arguments are expected to be bytes.
 Ensures flags are stored as strings in details.
 """
 
+import functools
 import logging
 import os
 from collections.abc import Callable
@@ -21,42 +22,51 @@ log = logging.getLogger(__name__)
 SyscallHandler = Callable[[Syscall, Monitor, dict[int, bytes]], None]
 
 
+def path_handler(fn: SyscallHandler) -> SyscallHandler:
+    """
+    Wrap a handler so a failed path/FD resolution is logged quietly and skipped.
+
+    Both ``helpers.resolve_path`` (via PathResolutionError) and
+    ``monitor.get_path`` raise ``KeyError`` when a PID or FD has already gone.
+    That is routine as processes exit mid-trace, so it is logged at debug rather
+    than surfaced as a handler error with a full traceback.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]) -> None:
+        try:
+            fn(event, monitor, cwd_map)
+        except KeyError:
+            log.debug(f"PID {event.pid} probably already gone during {event.syscall}")
+
+    return wrapper
+
+
 # --- Open/Create Syscall Handlers ---
 
 
+@path_handler
 def _handle_open(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
     """Handles 'open' syscall."""
     pid, success, timestamp = event.pid, event.success, event.timestamp
-    details = {"syscall": event.syscall}
 
-    try:
-        path = helpers.resolve_path(pid, event.args[0], cwd_map, monitor)
-    except KeyError:
-        log.debug(f"PID {pid} probably already gone during {details['syscall']}")
-        return
-
-    details["flags"] = event.args[1]
-    details["mode"] = event.args[2]
+    path = helpers.resolve_path(pid, event.args[0], cwd_map, monitor)
+    details = {"syscall": event.syscall, "flags": event.args[1], "mode": event.args[2]}
 
     fd = event.result_int if success and event.result_int is not None else -1
     monitor.open(pid, path, fd, success, timestamp, **details)
 
 
+@path_handler
 def _handle_openat(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
     """Handles 'openat' syscall."""
     pid, success, timestamp = event.pid, event.success, event.timestamp
     details = {"syscall": event.syscall}
 
-    dirfd_arg = event.args[0]
-    dirfd = helpers.parse_dirfd(dirfd_arg)
-    details["dirfd"] = dirfd_arg
+    dirfd = helpers.parse_dirfd(event.args[0])
+    details["dirfd"] = event.args[0]
 
-    try:
-        path = helpers.resolve_path(pid, event.args[1], cwd_map, monitor, dirfd=dirfd)
-    except KeyError:
-        log.debug(f"PID {pid} probably already gone during {details['syscall']}")
-        return
-
+    path = helpers.resolve_path(pid, event.args[1], cwd_map, monitor, dirfd=dirfd)
     details["flags"] = event.args[2]
     if len(event.args) > 3:
         details["mode"] = event.args[3]
@@ -65,13 +75,13 @@ def _handle_openat(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
     monitor.open(pid, path, fd, success, timestamp, **details)
 
 
+@path_handler
 def _handle_creat(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
     """Handles 'creat' syscall."""
     pid, success, timestamp = event.pid, event.success, event.timestamp
-    details = {"syscall": event.syscall}
 
     path = helpers.resolve_path(pid, event.args[0], cwd_map, monitor)
-    details["mode"] = event.args[1]
+    details = {"syscall": event.syscall, "mode": event.args[1]}
 
     fd = event.result_int if success and event.result_int is not None else -1
     monitor.open(pid, path, fd, success, timestamp, **details)
@@ -82,41 +92,46 @@ def _handle_creat(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
 
 def _handle_close(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
     """Handles 'close' syscall."""
-    pid, success, timestamp = event.pid, event.success, event.timestamp
-    details = {"syscall": event.syscall}
-
     fd_arg = event.args[0]
-    monitor.close(pid, fd_arg, success, timestamp, **details)
+    monitor.close(
+        event.pid, fd_arg, event.success, event.timestamp, syscall=event.syscall
+    )
 
 
 # --- Read/Write Syscall Handlers ---
 
 
+@path_handler
 def _handle_read(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
     """Handles 'read' syscall."""
     _handle_read_write_common(event, monitor, is_read=True)
 
 
+@path_handler
 def _handle_pread64(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
     """Handles 'pread64' syscall."""
     _handle_read_write_common(event, monitor, is_read=True, has_offset=True)
 
 
+@path_handler
 def _handle_readv(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
     """Handles 'readv' syscall."""
     _handle_read_write_common(event, monitor, is_read=True)
 
 
+@path_handler
 def _handle_write(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
     """Handles 'write' syscall."""
     _handle_read_write_common(event, monitor, is_read=False)
 
 
+@path_handler
 def _handle_pwrite64(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
     """Handles 'pwrite64' syscall."""
     _handle_read_write_common(event, monitor, is_read=False, has_offset=True)
 
 
+@path_handler
 def _handle_writev(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
     """Handles 'writev' syscall."""
     _handle_read_write_common(event, monitor, is_read=False)
@@ -125,23 +140,15 @@ def _handle_writev(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
 def _handle_read_write_common(
     event: Syscall, monitor: Monitor, is_read: bool, has_offset: bool = False
 ):
-    """Common logic for read/write syscalls."""
+    """Common logic for read/write syscalls. Raises KeyError if the FD is gone."""
     pid, success, timestamp = event.pid, event.success, event.timestamp
-    details = {"syscall": event.syscall}
 
     fd_arg = event.args[0]
+    path = monitor.get_path(pid, fd_arg)
 
-    try:
-        path = monitor.get_path(pid, fd_arg)
-    except KeyError:
-        log.debug(f"PID {pid} probably already gone during {details['syscall']}")
-        return
-
-    details["requested_bytes"] = event.args[2]
-
+    details = {"syscall": event.syscall, "requested_bytes": event.args[2]}
     if has_offset:
         details["offset"] = event.args[3]
-
     details["bytes"] = (
         event.result_int if success and event.result_int is not None else 0
     )
@@ -155,73 +162,39 @@ def _handle_read_write_common(
 # --- Stat Syscall Handlers ---
 
 
+@path_handler
 def _handle_access(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
     """Handles 'access' syscall."""
     pid, success, timestamp = event.pid, event.success, event.timestamp
-    details = {"syscall": event.syscall}
 
-    try:
-        path = helpers.resolve_path(pid, event.args[0], cwd_map, monitor)
-    except KeyError:
-        log.debug(f"PID {pid} probably already gone during {details['syscall']}")
-        return
-
-    details["mode"] = event.args[1]
+    path = helpers.resolve_path(pid, event.args[0], cwd_map, monitor)
+    details = {"syscall": event.syscall, "mode": event.args[1]}
 
     monitor.stat(pid, path, success, timestamp, **details)
 
 
+@path_handler
 def _handle_stat(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
-    """Handles 'stat' syscall."""
+    """Handles 'stat' and 'lstat' syscalls (identical shape)."""
     pid, success, timestamp = event.pid, event.success, event.timestamp
-    details = {"syscall": event.syscall}
 
-    try:
-        path = helpers.resolve_path(pid, event.args[0], cwd_map, monitor)
-    except KeyError:
-        log.debug(f"PID {pid} probably already gone during {details['syscall']}")
-        return
-
-    struct_arg = event.args[1]
-    details["struct_buffer"] = struct_arg
+    path = helpers.resolve_path(pid, event.args[0], cwd_map, monitor)
+    details = {"syscall": event.syscall, "struct_buffer": event.args[1]}
 
     monitor.stat(pid, path, success, timestamp, **details)
 
 
-def _handle_lstat(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
-    """Handles 'lstat' syscall."""
-    pid, success, timestamp = event.pid, event.success, event.timestamp
-    details = {"syscall": event.syscall}
-
-    try:
-        path = helpers.resolve_path(pid, event.args[0], cwd_map, monitor)
-    except KeyError:
-        log.debug(f"PID {pid} probably already gone during {details['syscall']}")
-        return
-
-    struct_arg = event.args[1]
-    details["struct_buffer"] = struct_arg
-
-    monitor.stat(pid, path, success, timestamp, **details)
-
-
+@path_handler
 def _handle_newfstatat(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
     """Handles 'newfstatat' syscall."""
     pid, success, timestamp = event.pid, event.success, event.timestamp
     details = {"syscall": event.syscall}
 
-    dirfd_arg = event.args[0]
-    dirfd = helpers.parse_dirfd(dirfd_arg)
-    details["dirfd"] = dirfd_arg
+    dirfd = helpers.parse_dirfd(event.args[0])
+    details["dirfd"] = event.args[0]
 
-    try:
-        path = helpers.resolve_path(pid, event.args[1], cwd_map, monitor, dirfd=dirfd)
-    except KeyError:
-        log.debug(f"PID {pid} probably already gone during {details['syscall']}")
-        return
-
-    struct_arg = event.args[2]
-    details["struct_buffer"] = struct_arg
+    path = helpers.resolve_path(pid, event.args[1], cwd_map, monitor, dirfd=dirfd)
+    details["struct_buffer"] = event.args[2]
 
     flags_arg = event.args[3]
     if flags_arg is not None:
@@ -230,21 +203,14 @@ def _handle_newfstatat(event: Syscall, monitor: Monitor, cwd_map: dict[int, byte
     monitor.stat(pid, path, success, timestamp, **details)
 
 
+@path_handler
 def _handle_fstat(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
     """Handles 'fstat' syscall."""
     pid, success, timestamp = event.pid, event.success, event.timestamp
-    details = {"syscall": event.syscall}
 
     fd_arg = event.args[0]
-    details["fd"] = fd_arg
-    try:
-        path = monitor.get_path(pid, fd_arg)
-    except KeyError:
-        log.debug(f"PID {pid} probably already gone during {details['syscall']}")
-        return
-
-    struct_arg = event.args[1]
-    details["struct_buffer"] = struct_arg
+    path = monitor.get_path(pid, fd_arg)
+    details = {"syscall": event.syscall, "fd": fd_arg, "struct_buffer": event.args[1]}
 
     monitor.stat(pid, path, success, timestamp, **details)
 
@@ -252,29 +218,25 @@ def _handle_fstat(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
 # --- Delete Syscall Handlers ---
 
 
-def _handle_unlink(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
-    """Handles 'unlink' syscall."""
-    pid, success, timestamp = event.pid, event.success, event.timestamp
-    details = {"syscall": event.syscall}
+@path_handler
+def _handle_delete(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
+    """Handles 'unlink' and 'rmdir' syscalls (single path, no dirfd)."""
+    path = helpers.resolve_path(event.pid, event.args[0], cwd_map, monitor)
+    monitor.delete(
+        event.pid, path, event.success, event.timestamp, syscall=event.syscall
+    )
 
-    path = helpers.resolve_path(pid, event.args[0], cwd_map, monitor)
-    monitor.delete(pid, path, success, timestamp, **details)
 
-
+@path_handler
 def _handle_unlinkat(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
     """Handles 'unlinkat' syscall."""
     pid, success, timestamp = event.pid, event.success, event.timestamp
     details = {"syscall": event.syscall}
 
-    dirfd_arg = event.args[0]
-    dirfd = helpers.parse_dirfd(dirfd_arg)
-    details["dirfd"] = dirfd_arg
+    dirfd = helpers.parse_dirfd(event.args[0])
+    details["dirfd"] = event.args[0]
 
-    try:
-        path = helpers.resolve_path(pid, event.args[1], cwd_map, monitor, dirfd=dirfd)
-    except KeyError:
-        log.debug(f"PID {pid} probably already gone during {details['syscall']}")
-        return
+    path = helpers.resolve_path(pid, event.args[1], cwd_map, monitor, dirfd=dirfd)
 
     flags_arg = event.args[2]
     if flags_arg is not None:
@@ -283,68 +245,30 @@ def _handle_unlinkat(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]
     monitor.delete(pid, path, success, timestamp, **details)
 
 
-def _handle_rmdir(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
-    """Handles 'rmdir' syscall."""
-    pid, success, timestamp = event.pid, event.success, event.timestamp
-    details = {"syscall": event.syscall}
-
-    path = helpers.resolve_path(pid, event.args[0], cwd_map, monitor)
-    monitor.delete(pid, path, success, timestamp, **details)
-
-
 # --- Rename Syscall Handlers ---
 
 
+@path_handler
 def _handle_rename(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
     """Handles 'rename' syscall."""
     pid, success, timestamp = event.pid, event.success, event.timestamp
-    details = {"syscall": event.syscall}
 
     old_path = helpers.resolve_path(pid, event.args[0], cwd_map, monitor)
     new_path = helpers.resolve_path(pid, event.args[1], cwd_map, monitor)
 
-    monitor.rename(pid, old_path, new_path, success, timestamp, **details)
+    monitor.rename(pid, old_path, new_path, success, timestamp, syscall=event.syscall)
 
 
+@path_handler
 def _handle_renameat(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
-    """Handles 'renameat' syscall."""
+    """Handles 'renameat' and 'renameat2' syscalls (renameat2 adds a flags arg)."""
     pid, success, timestamp = event.pid, event.success, event.timestamp
     details = {"syscall": event.syscall}
 
-    old_dirfd_arg = event.args[0]
-    old_dirfd = helpers.parse_dirfd(old_dirfd_arg)
-    details["old_dirfd"] = old_dirfd_arg
-
-    new_dirfd_arg = event.args[2]
-    new_dirfd = helpers.parse_dirfd(new_dirfd_arg)
-    details["new_dirfd"] = new_dirfd_arg
-
-    try:
-        old_path = helpers.resolve_path(
-            pid, event.args[1], cwd_map, monitor, dirfd=old_dirfd
-        )
-        new_path = helpers.resolve_path(
-            pid, event.args[3], cwd_map, monitor, dirfd=new_dirfd
-        )
-    except KeyError:
-        log.debug(f"PID {pid} probably already gone during {details['syscall']}")
-        return
-
-    monitor.rename(pid, old_path, new_path, success, timestamp, **details)
-
-
-def _handle_renameat2(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
-    """Handles 'renameat2' syscall."""
-    pid, success, timestamp = event.pid, event.success, event.timestamp
-    details = {"syscall": event.syscall}
-
-    old_dirfd_arg = event.args[0]
-    old_dirfd = helpers.parse_dirfd(old_dirfd_arg)
-    details["old_dirfd"] = old_dirfd_arg
-
-    new_dirfd_arg = event.args[2]
-    new_dirfd = helpers.parse_dirfd(new_dirfd_arg)
-    details["new_dirfd"] = new_dirfd_arg
+    old_dirfd = helpers.parse_dirfd(event.args[0])
+    details["old_dirfd"] = event.args[0]
+    new_dirfd = helpers.parse_dirfd(event.args[2])
+    details["new_dirfd"] = event.args[2]
 
     old_path = helpers.resolve_path(
         pid, event.args[1], cwd_map, monitor, dirfd=old_dirfd
@@ -353,9 +277,8 @@ def _handle_renameat2(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes
         pid, event.args[3], cwd_map, monitor, dirfd=new_dirfd
     )
 
-    flags_arg = event.args[4]
-    if flags_arg is not None:
-        details["flags"] = str(flags_arg)
+    if len(event.args) > 4 and event.args[4] is not None:
+        details["flags"] = str(event.args[4])
 
     monitor.rename(pid, old_path, new_path, success, timestamp, **details)
 
@@ -423,15 +346,15 @@ SYSCALL_HANDLERS: dict[str, SyscallHandler] = {
     # Stat handlers
     "access": _handle_access,
     "stat": _handle_stat,
-    "lstat": _handle_lstat,
+    "lstat": _handle_stat,
     "newfstatat": _handle_newfstatat,
     "fstat": _handle_fstat,
     # Delete handlers
-    "unlink": _handle_unlink,
+    "unlink": _handle_delete,
     "unlinkat": _handle_unlinkat,
-    "rmdir": _handle_rmdir,
+    "rmdir": _handle_delete,
     # Rename handlers
     "rename": _handle_rename,
     "renameat": _handle_renameat,
-    "renameat2": _handle_renameat2,
+    "renameat2": _handle_renameat,
 }
