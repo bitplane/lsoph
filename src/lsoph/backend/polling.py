@@ -98,6 +98,11 @@ class PollingBackend(Backend):
                         f"{type(self).__name__} snapshot failed, skipping cycle: {e}"
                     )
                 else:
+                    open_fds = sum(len(files.fds) for files in snapshot.values())
+                    log.debug(
+                        f"poll {poll_count}: {open_fds} open fds "
+                        f"across {len(snapshot)} of {len(monitored)} pids"
+                    )
                     self._reconcile(snapshot, seen, monitored, time.time())
 
                 if self.should_stop:
