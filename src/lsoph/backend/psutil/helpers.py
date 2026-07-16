@@ -3,6 +3,8 @@
 
 import logging
 import os
+import stat
+import sys
 from typing import Any
 
 # Attempt to import psutil and handle failure gracefully
@@ -49,22 +51,52 @@ def _get_process_cwd(proc: psutil.Process) -> bytes | None:
         return None
 
 
-def _get_process_open_files(
-    proc: psutil.Process,
-) -> list[dict[str, Any]]:  # Dict value for 'path' will be bytes
+def _fd_paths_from_proc(pid: int) -> list[dict[str, Any]]:
+    """Read /proc/<pid>/fd directly (Linux) for every file-backed descriptor.
+
+    psutil.open_files() reports *regular* files only, so device files
+    (/dev/zero, /dev/null, ...) a process holds open are invisible to it. The
+    /proc fd symlinks cover them; the symlink's own permission bits encode the
+    fd's access mode (lr-x = read, l-wx = write, lrwx = read/write). Sockets and
+    pipes (targets not starting with "/") are skipped -- sockets are reported
+    separately, and pipes are not files.
     """
-    Safely get open files and connections for a process.
-    Returns paths as bytes.
-    """
-    if not PSUTIL_AVAILABLE:
+    fd_dir = os.fsencode(f"/proc/{pid}/fd")
+    try:
+        entries = os.listdir(fd_dir)
+    except OSError as e:
+        log.debug(f"Could not list {fd_dir!r}: {type(e).__name__}")
         return []
 
-    open_files_data: list[dict[str, Any]] = []
+    files: list[dict[str, Any]] = []
+    for name in entries:
+        try:
+            fd = int(name)
+        except ValueError:
+            continue
+        link = os.path.join(fd_dir, name)
+        try:
+            target = os.readlink(link)  # bytes in, bytes out
+            mode_bits = os.lstat(link).st_mode
+        except OSError:
+            continue  # fd closed between listdir and readlink
+        if not target.startswith(b"/"):
+            continue  # pipe:[...], socket:[...], anon_inode:[...]
+        if target.endswith(b" (deleted)"):
+            target = target[: -len(b" (deleted)")]
+        readable = bool(mode_bits & stat.S_IRUSR)
+        writable = bool(mode_bits & stat.S_IWUSR)
+        mode = ("r" if readable else "") + ("w" if writable else "") or "r"
+        files.append({"path": target, "fd": fd, "mode": mode, "type": "file"})
+    return files
+
+
+def _regular_files_from_psutil(proc: psutil.Process) -> list[dict[str, Any]]:
+    """Regular open files via psutil (used off Linux, where /proc is absent)."""
+    files: list[dict[str, Any]] = []
     pid = proc.pid
-    try:  # Get regular files
+    try:
         for f in proc.open_files():
-            # Ensure path is bytes, handle potential issues
-            path_bytes: bytes | None = None
             if hasattr(f, "path") and f.path:
                 try:
                     path_bytes = os.fsencode(str(f.path))
@@ -72,17 +104,14 @@ def _get_process_open_files(
                     log.warning(
                         f"Could not encode path '{f.path}' for PID {pid} FD {f.fd}: {enc_err}"
                     )
-                    # Fallback to a placeholder bytes string
                     path_bytes = os.fsencode(f"<UNENCODABLE_PATH_FD:{f.fd}>")
             else:
-                # Use bytes placeholder if no path attribute
                 path_bytes = os.fsencode(f"<NO_PATH_FD:{f.fd}>")
-
-            open_files_data.append(
+            files.append(
                 {
-                    "path": path_bytes,  # Store bytes path
+                    "path": path_bytes,
                     "fd": f.fd,
-                    "mode": getattr(f, "mode", ""),  # Use getattr for safety
+                    "mode": getattr(f, "mode", ""),
                     "type": "file",
                 }
             )
@@ -93,6 +122,26 @@ def _get_process_open_files(
         Exception,
     ) as e:
         log.debug(f"Error accessing open files for PID {pid}: {type(e).__name__}")
+    return files
+
+
+def _get_process_open_files(
+    proc: psutil.Process,
+) -> list[dict[str, Any]]:  # Dict value for 'path' will be bytes
+    """
+    Safely get open files and connections for a process.
+    Returns paths as bytes.
+    """
+    if not PSUTIL_AVAILABLE:
+        return []
+
+    pid = proc.pid
+    # Linux: read /proc/<pid>/fd for the complete fd set (incl. devices);
+    # elsewhere fall back to psutil's regular-files-only view.
+    if sys.platform.startswith("linux"):
+        open_files_data = _fd_paths_from_proc(pid)
+    else:
+        open_files_data = _regular_files_from_psutil(proc)
 
     try:  # Get connections
         for conn in proc.connections(kind="all"):
