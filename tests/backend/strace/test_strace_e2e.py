@@ -42,3 +42,37 @@ def test_run_command_captures_opened_file():
     assert "OPEN" in list(info.recent_event_types)
     # The shared library the C runtime loads should show up too.
     assert any(b"libc.so" in path for path in files)
+
+
+def test_stop_terminates_the_traced_tree_promptly():
+    """stop() must not wait for a long-running traced child to finish.
+
+    The tracer runs in its own process group; stop() signals the whole group so
+    strace and its `sleep 60` child die together. Before this fix stop() blocked
+    until the child exited (the child inherited strace's stderr pipe, so wait()
+    never returned), so quitting the UI hung.
+    """
+
+    async def scenario():
+        monitor = Monitor(identifier="stop")
+        backend = Strace(monitor)
+        run = asyncio.create_task(backend.run_command(["sleep", "60"]))
+        await asyncio.sleep(1.5)  # let strace attach and start the child
+
+        process = backend._process  # captured before stop() clears it
+        if process is None:
+            return None  # strace never launched (ptrace blocked); caller skips
+        # If stop() hung waiting for `sleep 60`, these wait_for calls would fire.
+        await asyncio.wait_for(backend.stop(), timeout=5.0)
+        await asyncio.wait_for(run, timeout=5.0)
+        return process
+
+    logging.disable(logging.CRITICAL)
+    try:
+        process = asyncio.run(asyncio.wait_for(scenario(), timeout=20))
+    finally:
+        logging.disable(logging.NOTSET)
+
+    if process is None:
+        pytest.skip("strace did not launch (ptrace likely blocked here)")
+    assert process.returncode is not None  # tracer group actually reaped
