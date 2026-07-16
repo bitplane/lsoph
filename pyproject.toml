@@ -19,7 +19,8 @@ dependencies = [
     "upd8==0.0.2",
     "psutil~=7.0",
     "textual~=3.1",
-    "pyparsing~=3.2"
+    "pyparsing~=3.2",
+    "platformdirs~=4.0"
 ]
 
 [project.optional-dependencies]

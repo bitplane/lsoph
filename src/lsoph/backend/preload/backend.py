@@ -19,10 +19,11 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
+
+from platformdirs import user_cache_dir
 
 from lsoph.util.pid import get_cwd as pid_get_cwd
 
@@ -59,10 +60,13 @@ def _compile_shim() -> str | None:
     if not compiler or not _SHIM_SRC.is_file():
         return None
 
-    so_path = Path(tempfile.gettempdir()) / "lsoph_preload.so"
+    # Per-user cache dir: a shared /tmp would collide (or hand us a .so we
+    # didn't compile) on multi-user machines.
+    so_path = Path(user_cache_dir("lsoph")) / "preload.so"
     # Reuse the cached shim unless the source is newer.
     if so_path.is_file() and so_path.stat().st_mtime >= _SHIM_SRC.stat().st_mtime:
         return str(so_path)
+    so_path.parent.mkdir(parents=True, exist_ok=True)
 
     cmd = [
         compiler,

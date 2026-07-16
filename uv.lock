@@ -666,6 +666,7 @@ name = "lsoph"
 version = "0.0.5"
 source = { editable = "." }
 dependencies = [
+    { name = "platformdirs" },
     { name = "psutil" },
     { name = "pyparsing" },
     { name = "textual" },
@@ -689,6 +690,7 @@ requires-dist = [
     { name = "build", marker = "extra == 'dev'" },
     { name = "coverage", marker = "extra == 'dev'" },
     { name = "flake8", marker = "extra == 'dev'" },
+    { name = "platformdirs", specifier = "~=4.0" },
     { name = "pre-commit", marker = "extra == 'dev'" },
     { name = "psutil", specifier = "~=7.0" },
     { name = "pydoc-markdown", marker = "extra == 'dev'" },
