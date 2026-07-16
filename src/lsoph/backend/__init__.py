@@ -7,6 +7,7 @@ import logging
 from typing import Type
 
 from .base import Backend
+from .fsusage import Fsusage
 from .lsof import Lsof
 from .psutil import Psutil
 from .strace import Strace
@@ -19,7 +20,7 @@ log = logging.getLogger("lsoph.backend")
 log.debug("Starting backend discovery...")
 BACKENDS: dict[str, Type[Backend]] = {
     backend.__name__.lower(): backend
-    for backend in (Lsof, Psutil, Strace, Truss)
+    for backend in (Lsof, Psutil, Strace, Truss, Fsusage)
     if backend.is_available()
 }
 
