@@ -23,24 +23,30 @@ log = logging.getLogger(__name__)
 STRACE_BASE_OPTIONS = ["-f", "-qq", "-s", "4096"]
 
 FILE_STRUCT_SYSCALLS = [
-    "open",
-    "openat",
-    "creat",
-    "access",
-    "stat",
-    "lstat",
-    "newfstatat",
+    # open / create
+    "open", "openat", "openat2", "creat",
+    # access / stat
+    "access", "faccessat", "faccessat2",
+    "stat", "lstat", "fstat", "newfstatat", "statx",
+    "readlink", "readlinkat",
+    # close
     "close",
-    "unlink",
-    "unlinkat",
-    "rmdir",
-    "rename",
-    "renameat",
-    "renameat2",
-    "chdir",
-    "fchdir",
-]
-IO_SYSCALLS = ["read", "pread64", "readv", "write", "pwrite64", "writev"]
+    # delete
+    "unlink", "unlinkat", "rmdir",
+    # rename
+    "rename", "renameat", "renameat2",
+    # create (dir / link) and truncate
+    "mkdir", "mkdirat", "link", "symlink", "truncate", "ftruncate",
+    # fd duplication
+    "dup", "dup2", "dup3",
+    # cwd
+    "chdir", "fchdir",
+]  # fmt: skip
+IO_SYSCALLS = [
+    "read", "pread64", "readv", "preadv", "preadv2",
+    "write", "pwrite64", "writev", "pwritev", "pwritev2",
+    "splice", "copy_file_range", "sendfile",
+]  # fmt: skip
 DEFAULT_SYSCALLS = sorted(
     set(PROCESS_SYSCALLS)
     | set(FILE_STRUCT_SYSCALLS)

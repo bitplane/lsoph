@@ -93,6 +93,44 @@ def test_failed_open_sets_enoent_flag():
     assert info.last_error_enoent is True
 
 
+def test_splice_records_read_on_source_and_write_on_dest():
+    """splice moves bytes from fd_in to fd_out; both files get the byte count."""
+    monitor = Monitor(identifier="t")
+    monitor.open(1000, b"/src", 3, True, 1.0)
+    monitor.open(1000, b"/dst", 4, True, 1.0)
+
+    # splice(fd_in=3, off_in, fd_out=4, off_out, len, flags) = 100
+    _dispatch(
+        _event("splice", [3, "NULL", 4, "NULL", 65536, 0], result_int=100), monitor
+    )
+
+    assert monitor.files[b"/src"].bytes_read == 100
+    assert monitor.files[b"/dst"].bytes_written == 100
+
+
+def test_dup_maps_new_fd_to_same_file():
+    """After dup, a read on the new fd resolves to the original file."""
+    monitor = Monitor(identifier="t")
+    monitor.open(1000, b"/f", 3, True, 1.0)
+
+    _dispatch(_event("dup", [3], result_int=5), monitor)  # dup(3) = 5
+    _dispatch(_event("read", [5, b"buf", 100], result_int=100), monitor)  # read new fd
+
+    assert monitor.files[b"/f"].bytes_read == 100
+
+
+def test_statx_records_a_stat():
+    """statx (modern stat) records the path as accessed."""
+    monitor = Monitor(identifier="t")
+    event = _event(
+        "statx", ["AT_FDCWD", b"/etc/x", "AT_STATX_SYNC_AS_STAT", "STATX_ALL", b"buf"]
+    )
+
+    _dispatch(event, monitor)
+
+    assert monitor.files[b"/etc/x"].status == "accessed"
+
+
 def test_missing_fd_is_skipped_without_raising():
     """A read on an unmapped fd (PID/FD gone) is swallowed by the guard."""
     monitor = Monitor(identifier="t")

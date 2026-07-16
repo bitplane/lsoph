@@ -292,6 +292,116 @@ def _handle_renameat(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]
     monitor.rename(pid, old_path, new_path, success, timestamp, **details)
 
 
+# --- Zero-copy transfer syscalls (bytes move between two fds) ---
+
+
+def _handle_transfer(event: Syscall, monitor: Monitor, in_idx: int, out_idx: int):
+    """A byte transfer: read from one fd, write to another. Guards each side so a
+    gone/unmapped fd on one end doesn't drop the other."""
+    pid, success, timestamp = event.pid, event.success, event.timestamp
+    nbytes = event.result_int if success and event.result_int is not None else 0
+    details = _details(event)
+    details["bytes"] = nbytes
+    for fd_idx, transfer in ((in_idx, monitor.read), (out_idx, monitor.write)):
+        try:
+            transfer(pid, event.args[fd_idx], None, success, timestamp, **details)
+        except KeyError:
+            log.debug(f"PID {pid} fd gone during {event.syscall}")
+
+
+def _handle_splice(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
+    """splice / copy_file_range: read fd_in (arg0), write fd_out (arg2)."""
+    _handle_transfer(event, monitor, in_idx=0, out_idx=2)
+
+
+def _handle_sendfile(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
+    """sendfile(out_fd, in_fd, ...): read in_fd (arg1), write out_fd (arg0)."""
+    _handle_transfer(event, monitor, in_idx=1, out_idx=0)
+
+
+# --- Vectored / positional read & write ---
+
+
+@path_handler
+def _handle_preadv(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
+    """Handles 'preadv' / 'preadv2'."""
+    _handle_read_write_common(event, monitor, is_read=True, has_offset=True)
+
+
+@path_handler
+def _handle_pwritev(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
+    """Handles 'pwritev' / 'pwritev2'."""
+    _handle_read_write_common(event, monitor, is_read=False, has_offset=True)
+
+
+# --- More stat / access / open variants ---
+
+
+@path_handler
+def _handle_dirfd_stat(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
+    """statx / faccessat / faccessat2 / readlinkat / mkdirat: dirfd + path (arg1)."""
+    pid, success, timestamp = event.pid, event.success, event.timestamp
+    dirfd = helpers.parse_dirfd(event.args[0])
+    path = helpers.resolve_path(pid, event.args[1], cwd_map, monitor, dirfd=dirfd)
+    monitor.stat(pid, path, success, timestamp, **_details(event, dirfd=event.args[0]))
+
+
+@path_handler
+def _handle_path_stat(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
+    """readlink / truncate / mkdir: a plain path at arg0, recorded as a stat."""
+    pid, success, timestamp = event.pid, event.success, event.timestamp
+    path = helpers.resolve_path(pid, event.args[0], cwd_map, monitor)
+    monitor.stat(pid, path, success, timestamp, **_details(event))
+
+
+@path_handler
+def _handle_link(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
+    """link(old, new) / symlink(target, link): the created path is arg1."""
+    pid, success, timestamp = event.pid, event.success, event.timestamp
+    path = helpers.resolve_path(pid, event.args[1], cwd_map, monitor)
+    monitor.stat(pid, path, success, timestamp, **_details(event))
+
+
+@path_handler
+def _handle_openat2(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
+    """openat2(dirfd, path, how, size): dirfd + path (arg1), returns an fd."""
+    pid, success, timestamp = event.pid, event.success, event.timestamp
+    dirfd = helpers.parse_dirfd(event.args[0])
+    path = helpers.resolve_path(pid, event.args[1], cwd_map, monitor, dirfd=dirfd)
+    fd = event.result_int if success and event.result_int is not None else -1
+    monitor.open(
+        pid, path, fd, success, timestamp, **_details(event, dirfd=event.args[0])
+    )
+
+
+@path_handler
+def _handle_ftruncate(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
+    """ftruncate(fd, len): the fd's file was modified."""
+    pid, success, timestamp = event.pid, event.success, event.timestamp
+    path = monitor.get_path(pid, event.args[0])
+    monitor.stat(pid, path, success, timestamp, **_details(event))
+
+
+# --- File descriptor duplication ---
+
+
+def _handle_dup(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
+    """dup(oldfd)=newfd / dup2(oldfd, newfd) / dup3(...): the new fd refers to the
+    same file, so map it to the old fd's path."""
+    if not event.success:
+        return
+    pid, timestamp = event.pid, event.timestamp
+    old_fd = event.args[0]
+    new_fd = event.result_int if event.syscall == "dup" else event.args[1]
+    if not isinstance(new_fd, int) or new_fd < 0:
+        return
+    try:
+        path = monitor.get_path(pid, old_fd)
+    except KeyError:
+        return
+    monitor.open(pid, path, new_fd, True, timestamp, syscall=event.syscall)
+
+
 # --- CWD Update Logic ---
 def update_cwd(pid: int, cwd_map: dict[int, bytes], monitor: Monitor, event: Syscall):
     """Updates the CWD map (bytes) based on chdir or fchdir syscalls."""
@@ -345,19 +455,44 @@ SYSCALL_HANDLERS: dict[str, SyscallHandler] = {
     "creat": _handle_creat,
     # Close handler
     "close": _handle_close,
+    "openat2": _handle_openat2,
     # Read/Write handlers
     "read": _handle_read,
     "pread64": _handle_pread64,
     "readv": _handle_readv,
+    "preadv": _handle_preadv,
+    "preadv2": _handle_preadv,
     "write": _handle_write,
     "pwrite64": _handle_pwrite64,
     "writev": _handle_writev,
+    "pwritev": _handle_pwritev,
+    "pwritev2": _handle_pwritev,
+    # Zero-copy transfers
+    "splice": _handle_splice,
+    "copy_file_range": _handle_splice,
+    "sendfile": _handle_sendfile,
     # Stat handlers
     "access": _handle_access,
+    "faccessat": _handle_dirfd_stat,
+    "faccessat2": _handle_dirfd_stat,
     "stat": _handle_stat,
     "lstat": _handle_stat,
     "newfstatat": _handle_newfstatat,
     "fstat": _handle_fstat,
+    "statx": _handle_dirfd_stat,
+    "readlink": _handle_path_stat,
+    "readlinkat": _handle_dirfd_stat,
+    "truncate": _handle_path_stat,
+    "ftruncate": _handle_ftruncate,
+    # Create handlers (dir / link)
+    "mkdir": _handle_path_stat,
+    "mkdirat": _handle_dirfd_stat,
+    "link": _handle_link,
+    "symlink": _handle_link,
+    # FD duplication
+    "dup": _handle_dup,
+    "dup2": _handle_dup,
+    "dup3": _handle_dup,
     # Delete handlers
     "unlink": _handle_delete,
     "unlinkat": _handle_unlinkat,
