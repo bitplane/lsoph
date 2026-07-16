@@ -16,53 +16,16 @@ import pyparsing as pp
 from lsoph.log import TRACE_LEVEL_NUM
 from lsoph.monitor import Monitor
 
-from .parser_defs import parse_line, resumed_suffix_parser
+from .parser_defs import parse_line, split_resumed, split_unfinished
 from .syscall import PROCESS_SYSCALLS, Syscall
 
 log = logging.getLogger(__name__)
 
 
-# --- State for Continuations ---
-unfinished_calls: dict[int, dict[str, Any]] = {}
-
-# --- Parse Actions / Result Processing ---
-
-
-def _parse_result_from_suffix(suffix_str: str) -> dict:
-    """Parses result, error, timing from the suffix of a resumed line using pyparsing."""
-    result_data = {
-        "result_val": None,  # Changed key to match main parser
-        "error_name": None,
-        "error_msg": None,
-        "timing": None,
-    }
-    try:
-        parsed_suffix = resumed_suffix_parser.parseString(suffix_str, parseAll=True)
-        result_data["result_val"] = parsed_suffix.result_val
-        result_data["error_name"] = (
-            parsed_suffix.error_part[0] if "error_part" in parsed_suffix else None
-        )
-        result_data["error_msg"] = (
-            parsed_suffix.error_part[1] if "error_part" in parsed_suffix else None
-        )  # Access nested error message
-        result_data["timing"] = (
-            parsed_suffix.timing_part[0] if "timing_part" in parsed_suffix else None
-        )
-    except pp.ParseException as pe_suffix:
-        log.warning(
-            f"Could not parse resumed suffix with pyparsing: {pe_suffix} - Suffix: {suffix_str!r}"
-        )
-    except Exception as e:
-        log.exception(f"Error parsing resumed suffix '{suffix_str!r}': {e}")
-    return result_data
-
-
-# --- FIX: Correct _build_syscall_object ---
 def _build_syscall_object(
     pid: int,
     syscall_name_str: str,
-    # args_results: Optional[pp.ParseResults], # This holds the result of param_list
-    args_list: List[Any],  # Pass the extracted list directly
+    args_list: List[Any],
     result_data: dict,
     timestamp: float,
     raw_line_bytes: bytes,
@@ -113,11 +76,6 @@ def _build_syscall_object(
     )
 
 
-# --- END FIX ---
-
-# --- Main Parsing Function ---
-
-
 async def parse_strace_stream_pyparsing(
     lines_bytes: AsyncIterator[bytes],  # Accepts bytes lines
     monitor: Monitor,  # Keep monitor arg for signature consistency
@@ -133,13 +91,14 @@ async def parse_strace_stream_pyparsing(
     line_count = 0
     parsed_count = 0
     trace_enabled = log.isEnabledFor(TRACE_LEVEL_NUM)
-    # --- Track last known PID for lines potentially missing it ---
+    # Track last known PID for lines potentially missing it.
     current_pid: int | None = None
+    # Pending "<unfinished ...>" prefixes, keyed by PID (one blocked call per PID).
+    unfinished_calls: dict[int, str] = {}
     # If attaching to a single known PID initially, use that as default
     if attach_ids and len(attach_ids) == 1:
         current_pid = attach_ids[0]
         log.debug(f"Setting initial PID context to {current_pid} (attach mode)")
-    # ----------------------------------------------------------
     try:
         async for line_b in lines_bytes:
             line_count += 1
@@ -159,6 +118,31 @@ async def parse_strace_stream_pyparsing(
                 continue  # Skip this line
 
             event_timestamp = time.time()  # Use current time as timestamp
+
+            # --- Handle split syscalls (strace -f interleaving) ---
+            unfinished = split_unfinished(line_str)
+            if unfinished is not None:
+                u_pid, prefix = unfinished
+                key_pid = u_pid if u_pid is not None else current_pid
+                if key_pid is not None:
+                    current_pid = key_pid
+                    unfinished_calls[key_pid] = prefix
+                else:
+                    log.debug(f"Unfinished line with no PID context: {line_str!r}")
+                continue  # Wait for the matching 'resumed' line.
+
+            resumed = split_resumed(line_str)
+            if resumed is not None:
+                r_pid, _name, rest = resumed
+                key_pid = r_pid if r_pid is not None else current_pid
+                prefix = unfinished_calls.pop(key_pid, None) if key_pid else None
+                if prefix is None:
+                    log.debug(f"Resumed line with no pending call: {line_str!r}")
+                    continue
+                current_pid = key_pid
+                # Splice the halves back into a complete line and parse normally.
+                line_str = f"{key_pid} {prefix}{rest}"
+                line_b = line_str.encode("utf-8", "surrogateescape")
 
             try:
                 # --- Try parsing as a complete syscall line first ---
@@ -230,28 +214,9 @@ async def parse_strace_stream_pyparsing(
                 log.debug(f"Parsed complete event: {syscall_obj!r}")  # Use repr
 
             except pp.ParseException:
-                # --- If it's not a complete line, check for unfinished/resumed ---
-                # This part needs refinement based on how unfinished/resumed lines
-                # should be handled. The current `parse_line` won't match them.
-                # For now, just log that it wasn't a complete syscall line.
+                # Not a complete syscall line (signal, exit marker, etc.).
                 log.debug(f"Line did not parse as complete syscall: {line_str!r}")
-                syscall_obj = None  # Explicitly set to None if parse failed
-
-                # --- Placeholder for potential future unfinished/resumed handling ---
-                # You would need separate pyparsing expressions for these line types
-                # and logic here to match them if `parse_line` fails.
-                # Example (conceptual):
-                # try:
-                #     parsed_unfinished = unfinished_line_parser.parseString(line_str, parseAll=True)
-                #     # ... store unfinished state ...
-                # except pp.ParseException:
-                #     try:
-                #         parsed_resumed = resumed_line_parser.parseString(line_str, parseAll=True)
-                #         # ... combine with stored state and build syscall_obj ...
-                #     except pp.ParseException:
-                #          # ... handle signal/exit or log as unparseable ...
-                #          log.debug(f"Line is not unfinished or resumed: {line_str!r}")
-                # --------------------------------------------------------------------
+                syscall_obj = None
 
             except Exception as e:
                 log.exception(
@@ -273,8 +238,4 @@ async def parse_strace_stream_pyparsing(
             f"Exiting pyparsing strace stream parser. Processed {line_count} lines, yielded {parsed_count} events."
         )
         if unfinished_calls:
-            log.warning(f"Parser exiting with unfinished calls: {unfinished_calls}")
-
-    # Ensure it's still an async generator type even if it yields nothing
-    if False:
-        yield None  # Adjusted to yield None to satisfy type hint if needed
+            log.debug(f"Parser exiting with unfinished calls: {unfinished_calls}")

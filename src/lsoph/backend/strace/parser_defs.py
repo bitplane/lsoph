@@ -9,6 +9,7 @@ Defines the pyparsing grammar for strace syscall output lines.
 """
 
 import logging
+import re
 
 import pyparsing as pp
 from pyparsing import pyparsing_common as ppc
@@ -110,7 +111,11 @@ key_value_pair = pp.Group(key + EQ + param_value)
 param = key_value_pair | pp.Group(param_value)
 
 pp.ParserElement.setDefaultWhitespaceChars(" \t")
-param_list = pp.Optional(pp.delimitedList(param, delim=COMMA)).setResultsName("args")
+# A trailing comma is tolerated: reconstructing an interrupted syscall (e.g.
+# "read(3,  <unfinished ...>" + "<... read resumed>) = -1 EINTR") can leave one.
+param_list = pp.Optional(
+    pp.delimitedList(param, delim=COMMA) + pp.Optional(COMMA)
+).setResultsName("args")
 
 # Result parsing
 result_val = (number | pp.Literal("?")).setResultsName("result_val")
@@ -145,14 +150,42 @@ full_line_parser = (
 
 full_line_parser.parseWithTabs()
 
-# Separate parser for resumed suffixes
-resumed_suffix_parser = (
-    EQ
-    + result_val
-    + pp.Optional(error_part)
-    + pp.Optional(timing_part)
-    + pp.StringEnd()
-)
+
+# --- Split-syscall handling (strace -f interleaving) ---
+# A blocking syscall is emitted across two lines:
+#   1234 read(3,  <unfinished ...>
+#   1234 <... read resumed> "data", 100) = 4
+# strace formats them so that (prefix before "<unfinished ...>") concatenated
+# with (text after "resumed>") re-forms the original complete line.
+UNFINISHED_MARKER = "<unfinished ...>"
+_PID_RE = re.compile(r"^(\d+)\s+(.*)$", re.DOTALL)
+_RESUMED_RE = re.compile(r"<\.\.\.\s*(\w+)\s+resumed>")
+
+
+def split_pid(line_str: str) -> tuple[int | None, str]:
+    """Split a leading numeric PID (the strace -f prefix) from the rest."""
+    match = _PID_RE.match(line_str)
+    if match:
+        return int(match.group(1)), match.group(2)
+    return None, line_str
+
+
+def split_unfinished(line_str: str) -> tuple[int | None, str] | None:
+    """If this is an '<unfinished ...>' line, return (pid, body-before-marker)."""
+    pid, body = split_pid(line_str)
+    if not body.rstrip().endswith(UNFINISHED_MARKER):
+        return None
+    prefix = body[: body.rindex(UNFINISHED_MARKER)].rstrip()
+    return pid, prefix
+
+
+def split_resumed(line_str: str) -> tuple[int | None, str, str] | None:
+    """If this is a '<... name resumed>' line, return (pid, name, text-after-marker)."""
+    pid, body = split_pid(line_str)
+    match = _RESUMED_RE.search(body)
+    if not match:
+        return None
+    return pid, match.group(1), body[match.end() :]
 
 
 def parse_line(line_str: str) -> pp.ParseResults:
