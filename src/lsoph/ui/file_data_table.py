@@ -21,11 +21,35 @@ from .emoji import get_emoji_history_string
 log = logging.getLogger("lsoph.ui.table")
 
 # Type alias for the visual data tuple (strings for display)
-TableRow = Tuple[Text, Text, Text]
-COLUMN_KEYS = ["history", "path", "age"]  # Order must match TableRow
+TableRow = Tuple[Text, Text, Text, Text]
+COLUMN_KEYS = ["history", "path", "io", "age"]  # Order must match TableRow
 
 
 # --- Formatting Helper ---
+def _format_bytes(n: int) -> str:
+    """Human-readable byte count (e.g. 512, 1.2K, 3.4M)."""
+    if n < 1024:
+        return str(n)
+    size = float(n)
+    for unit in "KMGTP":
+        size /= 1024
+        if size < 1024:
+            return f"{size:.1f}{unit}"
+    return f"{size:.1f}E"
+
+
+def _render_io(info: FileInfo) -> Text:
+    """Read/write byte totals as a compact coloured cell (blank when there's none)."""
+    io_text = Text(no_wrap=True)
+    if info.bytes_read:
+        io_text.append(f"{_format_bytes(info.bytes_read)}↓", style="cyan")
+    if info.bytes_written:
+        if io_text.plain:
+            io_text.append(" ")
+        io_text.append(f"{_format_bytes(info.bytes_written)}↑", style="magenta")
+    return io_text
+
+
 def _render_row(info: FileInfo, available_width: int, current_time: float) -> TableRow:
     """Formats FileInfo (with bytes path) into Text suitable for DataTable."""
 
@@ -63,9 +87,10 @@ def _render_row(info: FileInfo, available_width: int, current_time: float) -> Ta
     # Create Text objects with styles
     recent_text = Text(f" {emoji_history_str} ")  # Pad slightly
     path_text = Text(path_display_str, style=style)
+    io_text = _render_io(info)
     age_text = Text(age_str.rjust(4), style=style)
 
-    return recent_text, path_text, age_text
+    return recent_text, path_text, io_text, age_text
 
 
 class FileDataTable(DataTable):
@@ -77,6 +102,7 @@ class FileDataTable(DataTable):
     """
 
     RECENT_COL_WIDTH = 8  # Width for emoji history (e.g., 5 emojis + padding)
+    IO_COL_WIDTH = 16  # read/write byte totals, e.g. "1.2M↓ 3.4M↑"
     AGE_COL_WIDTH = 5
     SCROLLBAR_WIDTH = 2  # just a guess 🤷
     COLUMN_PADDING = 2  # User's estimate for padding per column
@@ -96,6 +122,7 @@ class FileDataTable(DataTable):
         # Calculate and set initial path width using the helper
         initial_path_width = self._get_path_column_width()
         self.add_column("Path", key="path", width=initial_path_width)
+        self.add_column("I/O", key="io", width=self.IO_COL_WIDTH)
         self.add_column("Age", key="age", width=self.AGE_COL_WIDTH)
         # Explicitly disable auto_width for the path column to respect our calculation
         self.columns["path"].auto_width = False
@@ -105,7 +132,9 @@ class FileDataTable(DataTable):
         # Assume self.size is valid when this is called
         w = self.size.width - self.SCROLLBAR_WIDTH
         w -= len(self.columns) * self.COLUMN_PADDING
-        calculated_width = w - self.RECENT_COL_WIDTH - self.AGE_COL_WIDTH
+        calculated_width = (
+            w - self.RECENT_COL_WIDTH - self.IO_COL_WIDTH - self.AGE_COL_WIDTH
+        )
         return max(1, calculated_width)
 
     @property
@@ -160,6 +189,7 @@ class FileDataTable(DataTable):
                             cached_data[0],
                             new_path_text,  # Update cache with new Text
                             cached_data[2],
+                            cached_data[3],
                         )
                     except KeyError:
                         log.warning(
