@@ -83,7 +83,10 @@ def test_parse_write_with_hex_escapes():
 
 def test_parse_clone_key_value_args():
     """Tests parsing 'clone' with key=value arguments and flags."""
-    line = "1855516 clone(child_stack=NULL, flags=CLONE_CHILD_CLEARTID|CLONE_CHILD_SETTID|SIGCHLD, child_tidptr=0x7ac60eccda10) = 2150465"
+    line = (
+        "1855516 clone(child_stack=NULL, flags=CLONE_CHILD_CLEARTID|"
+        "CLONE_CHILD_SETTID|SIGCHLD, child_tidptr=0x7ac60eccda10) = 2150465"
+    )
     parsed = parse_line(line)
     assert parsed.pid == 1855516
     assert parsed.syscall_complete.syscall == "clone"
@@ -111,7 +114,11 @@ def test_parse_simple_close():
 
 def test_parse_access_with_error():
     """Tests parsing 'access' with an ENOENT error."""
-    line = '2150465 access("\\x2f\\x65\\x74\\x63\\x2f\\x6c\\x64\\x2e\\x73\\x6f\\x2e\\x70\\x72\\x65\\x6c\\x6f\\x61\\x64", R_OK) = -1 ENOENT (No such file or directory)'
+    line = (
+        '2150465 access("\\x2f\\x65\\x74\\x63\\x2f\\x6c\\x64\\x2e\\x73\\x6f'
+        '\\x2e\\x70\\x72\\x65\\x6c\\x6f\\x61\\x64", R_OK) = -1 ENOENT '
+        "(No such file or directory)"
+    )
     parsed = parse_line(line)
     assert parsed.pid == 2150465
     assert parsed.syscall_complete.syscall == "access"
@@ -126,7 +133,11 @@ def test_parse_access_with_error():
 
 def test_parse_openat_with_flags():
     """Tests parsing 'openat' with flags."""
-    line = '2150465 openat(AT_FDCWD, "\\x2f\\x65\\x74\\x63\\x2f\\x6c\\x64\\x2e\\x73\\x6f\\x2e\\x63\\x61\\x63\\x68\\x65", O_RDONLY|O_CLOEXEC) = 3'
+    line = (
+        "2150465 openat(AT_FDCWD, "
+        '"\\x2f\\x65\\x74\\x63\\x2f\\x6c\\x64\\x2e\\x73\\x6f\\x2e'
+        '\\x63\\x61\\x63\\x68\\x65", O_RDONLY|O_CLOEXEC) = 3'
+    )
     parsed = parse_line(line)
     assert parsed.pid == 2150465
     assert parsed.syscall_complete.syscall == "openat"
@@ -329,7 +340,10 @@ def test_fail_resumed_line():
 
 def test_parse_newfstatat_with_struct():
     """Tests parsing newfstatat with a struct and a filename with spaces."""
-    line = '75036 newfstatat(8, "Met O 12c Technical Note", {st_mode=S_IFDIR|0775, st_size=4096, ...}, AT_SYMLINK_NOFOLLOW) = 0'
+    line = (
+        '75036 newfstatat(8, "Met O 12c Technical Note", '
+        "{st_mode=S_IFDIR|0775, st_size=4096, ...}, AT_SYMLINK_NOFOLLOW) = 0"
+    )
     parsed = parse_line(line)
     assert parsed.pid == 75036
     assert parsed.syscall_complete.syscall == "newfstatat"
@@ -378,102 +392,6 @@ def test_parse_minimal_struct():
     """Tests parsing a call with a minimal struct containing just one field."""
     line = "12345 some_syscall({value=123}) = 0"
     parsed = parse_line(line)
-    assert parsed.pid == 12345
-    assert parsed.syscall_complete.syscall == "some_syscall"
-    # Expect bytes struct
-    assert_parsed_args(parsed, [b"{value=123}"])  # simple struct (bytes)
-    assert parsed.syscall_complete.result_val == 0
-
-
-def test_parse_newfstatat_with_struct():
-    """Tests parsing newfstatat with a struct and a filename with spaces."""
-    line = '75036 newfstatat(8, "Met O 12c Technical Note", {st_mode=S_IFDIR|0775, st_size=4096, ...}, AT_SYMLINK_NOFOLLOW) = 0'
-    parsed = parse_line(line)
-    assert parsed.pid == 75036
-    assert parsed.syscall_complete.syscall == "newfstatat"
-    # Expect int fd, bytes path, bytes struct, string flag
-
-    # Extract all args manually to debug the issue
-    syscall_data = parsed.get("syscall_complete")
-    all_args = []
-
-    if syscall_data and "args" in syscall_data and syscall_data.args:
-        for arg_group in syscall_data.args:
-            if isinstance(arg_group, pp.ParseResults):
-                if len(arg_group) == 2:  # key=value pair
-                    all_args.append(arg_group[1])
-                elif len(arg_group) == 1:  # Standalone value
-                    all_args.append(arg_group[0])
-
-    # Print each arg for debugging
-    print("\nDEBUG - Args in newfstatat:")
-    for i, arg in enumerate(all_args):
-        print(f"  Arg {i}: {arg!r} (type: {type(arg)})")
-
-    # Now do the normal assertions
-    assert_parsed_args(
-        parsed,
-        [
-            8,  # fd (int)
-            b"Met O 12c Technical Note",  # path (bytes)
-            b"{st_mode=S_IFDIR|0775, st_size=4096, ...}",  # struct (bytes)
-            "AT_SYMLINK_NOFOLLOW",  # flag (str)
-        ],
-    )
-    assert parsed.syscall_complete.result_val == 0
-
-
-def test_parse_empty_struct():
-    """Tests parsing a call with an empty struct."""
-    line = "12345 some_syscall({}) = 0"
-    parsed = parse_line(line)
-
-    # Extract and print for debugging
-    syscall_data = parsed.get("syscall_complete")
-    all_args = []
-
-    if syscall_data and "args" in syscall_data and syscall_data.args:
-        for arg_group in syscall_data.args:
-            if isinstance(arg_group, pp.ParseResults):
-                if len(arg_group) == 2:  # key=value pair
-                    all_args.append(arg_group[1])
-                elif len(arg_group) == 1:  # Standalone value
-                    all_args.append(arg_group[0])
-
-    # Print each arg for debugging
-    print("\nDEBUG - Args in empty struct:")
-    for i, arg in enumerate(all_args):
-        print(f"  Arg {i}: {arg!r} (type: {type(arg)})")
-
-    assert parsed.pid == 12345
-    assert parsed.syscall_complete.syscall == "some_syscall"
-    # Expect bytes empty struct
-    assert_parsed_args(parsed, [b"{}"])  # empty struct (bytes)
-    assert parsed.syscall_complete.result_val == 0
-
-
-def test_parse_minimal_struct():
-    """Tests parsing a call with a minimal struct containing just one field."""
-    line = "12345 some_syscall({value=123}) = 0"
-    parsed = parse_line(line)
-
-    # Extract and print for debugging
-    syscall_data = parsed.get("syscall_complete")
-    all_args = []
-
-    if syscall_data and "args" in syscall_data and syscall_data.args:
-        for arg_group in syscall_data.args:
-            if isinstance(arg_group, pp.ParseResults):
-                if len(arg_group) == 2:  # key=value pair
-                    all_args.append(arg_group[1])
-                elif len(arg_group) == 1:  # Standalone value
-                    all_args.append(arg_group[0])
-
-    # Print each arg for debugging
-    print("\nDEBUG - Args in minimal struct:")
-    for i, arg in enumerate(all_args):
-        print(f"  Arg {i}: {arg!r} (type: {type(arg)})")
-
     assert parsed.pid == 12345
     assert parsed.syscall_complete.syscall == "some_syscall"
     # Expect bytes struct
