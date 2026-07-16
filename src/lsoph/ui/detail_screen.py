@@ -136,7 +136,7 @@ class DetailScreen(Screen):
                     ]:
                         # Decode other potential bytes values for display
                         if isinstance(v, bytes):
-                            filtered_details[k] = os.fsdecode(v, "surrogateescape")
+                            filtered_details[k] = os.fsdecode(v)
                         else:
                             filtered_details[k] = v
 
@@ -151,9 +151,7 @@ class DetailScreen(Screen):
                         details_dict[path_key], bytes
                     ):
                         # Add decoded path string to filtered details
-                        filtered_details[path_key] = os.fsdecode(
-                            details_dict[path_key], "surrogateescape"
-                        )
+                        filtered_details[path_key] = os.fsdecode(details_dict[path_key])
 
                 error_name = details_dict.get("error_name")
                 if error_name and not success:
