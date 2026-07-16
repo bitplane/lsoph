@@ -2,7 +2,7 @@
 """Main Textual application class for lsoph. Handles bytes paths from Monitor."""
 
 import logging
-import os  # For os.fsdecode
+import os
 from collections import deque
 from collections.abc import Coroutine
 from typing import Any, Optional
@@ -10,20 +10,14 @@ from typing import Any, Optional
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.reactive import reactive
-
-# Import DataTable event types
 from textual.widgets import DataTable, Footer, Header, Static
 from textual.worker import Worker, WorkerState
 
 from lsoph.backend.base import Backend
-from lsoph.monitor import FileInfo, Monitor  # FileInfo path is bytes
-
-# short_path accepts bytes, returns str
+from lsoph.monitor import FileInfo, Monitor
 from lsoph.util.short_path import short_path
 
-from .detail_screen import DetailScreen  # DetailScreen needs to handle bytes path
-
-# Import the FileDataTable widget (now handles bytes paths internally)
+from .detail_screen import DetailScreen
 from .file_data_table import FileDataTable
 from .log_screen import LogScreen
 
@@ -83,19 +77,16 @@ class LsophApp(App[None]):
         self._backend_worker: Worker | None = None
         self._backend_stop_signalled = False
         self._backend_stopped_notified = False
-        # Reference to the FileDataTable widget instance
         self._file_table: Optional[FileDataTable] = None
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the main application screen."""
         yield Header()
-        # Use the custom FileDataTable widget
         yield FileDataTable(id="file-table")
         yield Static(self.status_text, id="status-bar")
         yield Footer()
 
     # --- Worker Management ---
-    # (start_backend_worker and cancel_backend_worker remain the same)
     def start_backend_worker(self):
         """Starts the background worker to run the backend's async method."""
         if self._backend_worker and self._backend_worker.state == WorkerState.RUNNING:
@@ -159,16 +150,13 @@ class LsophApp(App[None]):
         if not self._file_table:
             return
         if new_version > old_version:
-            # Monitor.__iter__ yields FileInfo with bytes paths
             all_files: list[FileInfo] = list(self.monitor)
             active_files = [
                 info
                 for info in all_files
-                # Compare bytes path with ignored bytes paths
                 if info.path not in self.monitor.ignored_paths
             ]
             active_files.sort(key=lambda info: info.last_activity_ts, reverse=True)
-            # FileDataTable.update_data accepts FileInfo list (with bytes paths)
             self._file_table.update_data(active_files)
             self.update_status(
                 f"Tracking {len(active_files)} files. "
@@ -245,25 +233,17 @@ class LsophApp(App[None]):
         if not self._file_table:
             return
 
-        # FileDataTable.selected_path returns bytes
         path_to_ignore_bytes = self._file_table.selected_path
         if not path_to_ignore_bytes:
             self.notify("No row selected.", severity="warning", timeout=2)
             return
 
         # Decode for logging and notification
-        # --- FIX: Use os.fsdecode with one argument ---
         path_to_ignore_str = os.fsdecode(path_to_ignore_bytes)
-        # ---------------------------------------------
         log.info(f"Ignoring selected path: {path_to_ignore_str!r}")
-        # Call monitor.ignore with bytes path
         self.monitor.ignore(path_to_ignore_bytes)
-        # --- Force Update ---
         self.last_monitor_version = self.monitor.version
-        # --- End Force Update ---
-        self.notify(
-            f"Ignored: {short_path(path_to_ignore_bytes, 60)}", timeout=2
-        )  # short_path accepts bytes
+        self.notify(f"Ignored: {short_path(path_to_ignore_bytes, 60)}", timeout=2)
 
     def action_ignore_all(self) -> None:
         """Action to ignore all currently tracked files."""
@@ -278,11 +258,8 @@ class LsophApp(App[None]):
         if count_before == 0:
             self.notify("No active files to ignore.", timeout=2)
             return
-        # monitor.ignore_all works internally with bytes paths
         self.monitor.ignore_all()
-        # --- Force Update ---
         self.last_monitor_version = self.monitor.version
-        # --- End Force Update ---
         self.notify(f"Ignoring {count_before} currently tracked files.", timeout=2)
 
     def action_show_log(self) -> None:
@@ -304,21 +281,16 @@ class LsophApp(App[None]):
         if not self._file_table:
             return
 
-        # FileDataTable.selected_path returns bytes
         path_bytes = self._file_table.selected_path
         if not path_bytes:
             return
 
         # Decode for logging
-        # --- FIX: Use os.fsdecode with one argument ---
         path_str = os.fsdecode(path_bytes)
-        # ---------------------------------------------
         log.debug(f"Showing details for selected path: {path_str!r}")
         try:
-            # Look up using bytes path key
             file_info = self.monitor.files.get(path_bytes)
             if file_info:
-                # Pass FileInfo (with bytes path) to DetailScreen
                 self.push_screen(DetailScreen(file_info))
             else:
                 log.warning(f"File '{path_str!r}' not found in monitor state.")
@@ -356,32 +328,24 @@ class LsophApp(App[None]):
             log.debug(f"Identifier: {self.monitor.identifier}")
             log.debug(f"Backend PID: {self.monitor.backend_pid}")
             # Decode ignored paths for logging
-            # --- FIX: Use os.fsdecode with one argument ---
             ignored_paths_str = {os.fsdecode(p) for p in self.monitor.ignored_paths}
-            # ---------------------------------------------
             log.debug(
                 f"Ignored Paths ({len(self.monitor.ignored_paths)}): {ignored_paths_str!r}"
             )
             # Decode paths in pid_fd_map for logging
-            # --- FIX: Use os.fsdecode with one argument ---
             pid_fd_map_str = {
                 pid: {fd: os.fsdecode(p) for fd, p in fds.items()}
                 for pid, fds in self.monitor.pid_fd_map.items()
             }
-            # ---------------------------------------------
             log.debug(
                 f"PID->FD Map ({len(self.monitor.pid_fd_map)} pids): {pid_fd_map_str!r}"
             )
             log.debug(f"Files Dict ({len(self.monitor.files)} items):")
             # Use monitor's __iter__ for thread safety
             # Decode path for logging
-            sorted_files = sorted(
-                list(self.monitor), key=lambda f: f.path
-            )  # Sort by bytes path
+            sorted_files = sorted(list(self.monitor), key=lambda f: f.path)
             for info in sorted_files:
-                # --- FIX: Use os.fsdecode with one argument ---
                 path_str = os.fsdecode(info.path)
-                # ---------------------------------------------
                 log.debug(
                     f"  {path_str!r}: Status={info.status}, Open={info.is_open}, "
                     f"R/W={info.bytes_read}/{info.bytes_written}, "

@@ -20,9 +20,7 @@ DEFAULT_RECENT_EVENT_TYPES_SIZE = 5
 class FileInfo:
     """Holds state information about a single tracked file."""
 
-    # --- PATH IS NOW BYTES ---
     path: bytes
-    # ------------------------
     status: str = "unknown"  # e.g., unknown, open, closed, active, deleted, error
     last_activity_ts: float = field(default_factory=time.time)
     # Maps PID -> set of open FDs for that PID

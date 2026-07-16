@@ -43,10 +43,8 @@ def get_cwd(pid: int) -> bytes | None:
     """
     try:
         proc = psutil.Process(pid)
-        cwd_str = proc.cwd()  # psutil returns str
-        # --- ENCODE TO BYTES ---
+        cwd_str = proc.cwd()
         cwd_bytes = os.fsencode(cwd_str)
-        # -----------------------
         log.debug(f"Retrieved CWD for PID {pid}: {cwd_str!r} -> {cwd_bytes!r}")
         return cwd_bytes
     except psutil.NoSuchProcess:
@@ -56,9 +54,7 @@ def get_cwd(pid: int) -> bytes | None:
         log.warning(f"Access denied getting CWD for PID {pid} via psutil.")
         # Attempt Linux /proc fallback (might also fail with AccessDenied)
         try:
-            # --- USE BYTES PATH ---
             proc_path = os.path.join(b"/proc", str(pid).encode("ascii"), b"cwd")
-            # --------------------
             # Use os.stat on bytes path to check existence/permissions before readlink
             try:
                 os.stat(proc_path)

@@ -15,18 +15,14 @@ class Backend(ABC):
 
     # Class attribute intended to be overridden by subclasses
     # This name is used as the key in the BACKENDS dictionary
-    backend_name: str = "base"  # Default, should be overridden
+    backend_name: str = "base"
 
     def __init__(self, monitor: Monitor):
         """Initialize the backend."""
         self.monitor = monitor
         self._should_stop = asyncio.Event()
-        self._process: asyncio.subprocess.Process | None = (
-            None  # Store the process handle
-        )
+        self._process: asyncio.subprocess.Process | None = None
         log.info(f"Initializing backend: {self.__class__.__name__}")
-
-    # __str__ method removed as it's not suitable for class-level key generation
 
     @staticmethod
     @abstractmethod
@@ -98,9 +94,9 @@ class Backend(ABC):
                     f"Command process {pid} exited with code {return_code}. Stopping attach task."
                 )
                 # Process finished, signal attach task to stop (if not already done)
-                await self.stop()  # Signal stop event
+                await self.stop()
                 if attach_task not in done:  # If attach task is still pending
-                    attach_task.cancel()  # Cancel it explicitly
+                    attach_task.cancel()
             elif stop_wait_task in done:
                 log.info(
                     f"Stop signal received for command '{' '.join(command)}'. Terminating process and attach task."
@@ -109,7 +105,7 @@ class Backend(ABC):
                 if attach_task not in done:
                     attach_task.cancel()
                 if process_wait_task not in done:
-                    await self._terminate_process()  # Terminate the subprocess
+                    await self._terminate_process()
             elif attach_task in done:
                 log.info(
                     f"Attach task for command '{' '.join(command)}' finished unexpectedly or was cancelled."
@@ -147,7 +143,7 @@ class Backend(ABC):
                     pass  # Expected
         finally:
             log.info(f"Finished run_command for: {' '.join(command)}")
-            self._process = None  # Clear process handle
+            self._process = None
 
     async def _terminate_process(self):
         """Helper to terminate the managed subprocess."""
@@ -177,7 +173,7 @@ class Backend(ABC):
                 log.exception(
                     f"Error during command process termination for PID {pid}: {term_err}"
                 )
-        self._process = None  # Clear handle
+        self._process = None
 
     async def stop(self):
         """Signals the backend's running task to stop and terminates the managed process if any."""

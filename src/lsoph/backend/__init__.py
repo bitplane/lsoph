@@ -4,17 +4,14 @@ LSOPH Backend Package.
 """
 
 import logging
-from typing import Type  # Use Type for Python 3.10+
+from typing import Type
 
-# Import the base class
 from .base import Backend
-
-# Import specific backend implementations (now renamed)
 from .lsof import Lsof
 from .psutil import Psutil
 from .strace import Strace
 
-log = logging.getLogger("lsoph.backend")  # Logger for this package
+log = logging.getLogger("lsoph.backend")
 
 # --- Backend Discovery ---
 

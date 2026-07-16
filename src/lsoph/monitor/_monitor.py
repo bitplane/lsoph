@@ -14,7 +14,6 @@ from upd8 import Versioned, changes, waits
 from ..util.pid import get_fd_path
 from ._fileinfo import FileInfo
 
-# Setup Logging
 log = logging.getLogger("lsoph.monitor")
 
 # Constants for standard streams

@@ -20,7 +20,6 @@ class LogScreen(Screen):
     BINDINGS = [
         Binding("escape,q,l,ctrl+l", "app.pop_screen", "Close Logs", show=True),
         Binding("c", "clear_log", "Clear", show=True),
-        # Keep scrolling bindings if needed, RichLog handles basic scrolling
         Binding("up,k", "scroll_up()", "Scroll Up", show=False),
         Binding("down,j", "scroll_down()", "Scroll Down", show=False),
         Binding("pageup", "page_up()", "Page Up", show=False),
@@ -60,7 +59,7 @@ class LogScreen(Screen):
             existing_logs = list(self.log_queue)  # Copy queue items
             if existing_logs:
                 for line in existing_logs:
-                    log_widget.write(line)  # Write each line
+                    log_widget.write(line)
                 log_widget.scroll_end(
                     animate=False
                 )  # Scroll to bottom after initial load
@@ -85,7 +84,7 @@ class LogScreen(Screen):
                 log.debug("LogScreen unmounted. Stopped log queue timer.")
             except Exception as e:
                 log.error(f"Error stopping log screen timer: {e}")
-        self._timer = None  # Clear the timer reference
+        self._timer = None
 
     def _check_log_queue(self) -> None:
         """Periodically check the log queue and write new lines to RichLog."""

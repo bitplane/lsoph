@@ -3,7 +3,7 @@
 
 import logging
 
-from lsoph.monitor import FileInfo  # FileInfo.path is bytes
+from lsoph.monitor import FileInfo
 
 log = logging.getLogger("lsoph.ui.emoji")
 
@@ -44,9 +44,6 @@ def get_emoji_history_string(file_info: FileInfo, max_len: int = 5) -> str:
     Returns:
         A string of emojis (most recent first), padded with spaces.
     """
-    # This function only uses status, is_open, and event_history from FileInfo.
-    # It does not directly interact with the bytes path. No changes needed.
-
     if not file_info:
         return " " * max_len  # Return padding if no info
 

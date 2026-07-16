@@ -5,7 +5,7 @@ Handles bytes paths from the Monitor and decodes for display.
 """
 
 import logging
-import os  # For os.fsdecode
+import os
 import time
 from typing import Dict, List, Optional, Tuple
 
@@ -14,11 +14,8 @@ from textual import events
 from textual.widgets import DataTable
 
 from lsoph.monitor import FileInfo
-
-# short_path utility now accepts bytes and returns str
 from lsoph.util.short_path import short_path
 
-# Import the new emoji helper (doesn't need changes)
 from .emoji import get_emoji_history_string
 
 log = logging.getLogger("lsoph.ui.table")
@@ -29,20 +26,13 @@ COLUMN_KEYS = ["history", "path", "age"]  # Order must match TableRow
 
 
 # --- Formatting Helper ---
-def _render_row(
-    info: FileInfo, available_width: int, current_time: float
-) -> TableRow:  # Returns visual components (Text objects)
+def _render_row(info: FileInfo, available_width: int, current_time: float) -> TableRow:
     """Formats FileInfo (with bytes path) into Text suitable for DataTable."""
 
-    # --- Get Emoji History ---
     MAX_EMOJI_HISTORY = 5  # Keep consistent with column width
     emoji_history_str = get_emoji_history_string(info, MAX_EMOJI_HISTORY)
-    # --- End Emoji History ---
 
-    # --- DECODE AND SHORTEN PATH ---
-    # Use short_path utility which accepts bytes and returns decoded, shortened string
     path_display_str = short_path(info.path, max(1, available_width))
-    # -----------------------------
 
     # Format age string
     age_seconds = current_time - info.last_activity_ts
@@ -72,13 +62,10 @@ def _render_row(
 
     # Create Text objects with styles
     recent_text = Text(f" {emoji_history_str} ")  # Pad slightly
-    path_text = Text(path_display_str, style=style)  # Use decoded string
+    path_text = Text(path_display_str, style=style)
     age_text = Text(age_str.rjust(4), style=style)
 
     return recent_text, path_text, age_text
-
-
-# --- End Formatting Helper ---
 
 
 class FileDataTable(DataTable):
@@ -90,7 +77,7 @@ class FileDataTable(DataTable):
     """
 
     RECENT_COL_WIDTH = 8  # Width for emoji history (e.g., 5 emojis + padding)
-    AGE_COL_WIDTH = 5  # width of the age column
+    AGE_COL_WIDTH = 5
     SCROLLBAR_WIDTH = 2  # just a guess 🤷
     COLUMN_PADDING = 2  # User's estimate for padding per column
 
@@ -98,9 +85,7 @@ class FileDataTable(DataTable):
         super().__init__(*args, **kwargs)
         self.cursor_type = "row"
         self.zebra_stripes = True
-        # --- _paths NOW STORES BYTES ---
         self._paths: List[bytes] = []
-        # -----------------------------
         # Cache stores visual Text objects (TableRow)
         self._row_data_cache: Dict[str, TableRow] = {}  # Key is str(index)
 
@@ -124,12 +109,11 @@ class FileDataTable(DataTable):
         return max(1, calculated_width)
 
     @property
-    def selected_path(self) -> Optional[bytes]:  # Returns bytes path
+    def selected_path(self) -> Optional[bytes]:
         """Returns the original bytes path of the data visually at the cursor row."""
         idx = self.cursor_row
-        # Use internal bytes list
         if idx >= 0 and idx < len(self._paths):
-            return self._paths[idx]  # Return bytes path
+            return self._paths[idx]
         return None  # Return None if index invalid (< 0)
 
     def on_resize(self, event: events.Resize) -> None:
@@ -158,14 +142,10 @@ class FileDataTable(DataTable):
             cached_data: Optional[TableRow] = self._row_data_cache.get(cache_key)
 
             if cached_data and idx_key >= 0 and idx_key < len(self._paths):
-                # --- GET ORIGINAL BYTES PATH ---
                 original_path_bytes = self._paths[idx_key]
-                # -----------------------------
-                # --- DECODE AND SHORTEN ---
                 new_path_display_str = short_path(
                     original_path_bytes, max(1, path_text_width)
                 )
-                # ------------------------
                 new_path_text = Text(
                     new_path_display_str,
                     style=cached_data[1].style,  # Keep original style
@@ -236,7 +216,7 @@ class FileDataTable(DataTable):
 
         # --- Preserve Cursor State & Calculate Target Scroll ---
         old_idx = self.cursor_row
-        old_paths_bytes = self._paths  # Internal state uses bytes
+        old_paths_bytes = self._paths
         old_count = len(old_paths_bytes)
         old_scroll_y = self.scroll_y
         cursor_screen_offset = -1
@@ -245,10 +225,8 @@ class FileDataTable(DataTable):
             cursor_screen_offset = old_idx - old_scroll_y
 
         # --- Prepare New State ---
-        # --- PATHS ARE NOW BYTES ---
         new_paths_bytes = [info.path for info in infos]
         new_info_map = {info.path: info for info in infos}  # Map bytes path -> FileInfo
-        # -------------------------
         new_count = len(new_paths_bytes)
 
         # --- Calculate Target Cursor Index (using bytes paths) ---
@@ -290,20 +268,17 @@ class FileDataTable(DataTable):
         update_limit = min(old_count, new_count)
         for i in range(update_limit):
             index_key = str(i)
-            new_path_bytes = new_paths_bytes[i]  # Get bytes path
+            new_path_bytes = new_paths_bytes[i]
             try:
-                new_info = new_info_map[
-                    new_path_bytes
-                ]  # Look up FileInfo using bytes path
+                new_info = new_info_map[new_path_bytes]
             except KeyError:
                 log.error(
                     f"Inconsistency: Path {os.fsdecode(new_path_bytes)!r} not found in new_info_map at index {i}"
                 )
                 continue  # Skip this row if data is inconsistent
 
-            # _render_row accepts FileInfo (with bytes path), returns visual Text objects
             new_visuals: TableRow = _render_row(new_info, path_text_width, current_time)
-            new_data_cache[index_key] = new_visuals  # Cache the visual representation
+            new_data_cache[index_key] = new_visuals
 
             old_visuals: Optional[TableRow] = self._row_data_cache.get(index_key)
             if new_visuals != old_visuals:
@@ -323,20 +298,17 @@ class FileDataTable(DataTable):
         if new_count > old_count:
             for i in range(old_count, new_count):
                 index_key = str(i)
-                new_path_bytes = new_paths_bytes[i]  # Get bytes path
+                new_path_bytes = new_paths_bytes[i]
                 try:
-                    new_info = new_info_map[
-                        new_path_bytes
-                    ]  # Look up FileInfo using bytes path
+                    new_info = new_info_map[new_path_bytes]
                 except KeyError:
                     log.error(
                         f"Inconsistency: Path {os.fsdecode(new_path_bytes)!r} not found in new_info_map at index {i}"
                     )
                     continue  # Skip adding row if data is inconsistent
 
-                # _render_row accepts FileInfo (with bytes path), returns visual Text objects
                 new_visuals = _render_row(new_info, path_text_width, current_time)
-                new_data_cache[index_key] = new_visuals  # Cache visual representation
+                new_data_cache[index_key] = new_visuals
                 try:
                     self.add_row(*new_visuals, key=index_key)
                     rows_added += 1
@@ -352,11 +324,11 @@ class FileDataTable(DataTable):
                     rows_removed += 1
                 except KeyError:
                     log.warning(f"Row key '{index_key}' not found during remove.")
-                self._row_data_cache.pop(index_key, None)  # Remove from visual cache
+                self._row_data_cache.pop(index_key, None)
 
         # Update internal state caches
-        self._paths = new_paths_bytes  # Store new list of bytes paths
-        self._row_data_cache = new_data_cache  # Store new visual cache
+        self._paths = new_paths_bytes
+        self._row_data_cache = new_data_cache
 
         # --- Move Cursor ---
         if target_cursor_index != -1:

@@ -11,16 +11,16 @@ try:
 
     PSUTIL_AVAILABLE = True
 except ImportError:
-    psutil = None  # Set to None if import fails
+    psutil = None
     PSUTIL_AVAILABLE = False
 
-log = logging.getLogger(__name__)  # Use specific logger
+log = logging.getLogger(__name__)
 
 
 def _get_process_info(pid: int) -> psutil.Process | None:
     """Safely get a psutil.Process object."""
     if not PSUTIL_AVAILABLE:
-        return None  # Guard clause
+        return None
     try:
         return psutil.Process(pid)
     except (psutil.NoSuchProcess, psutil.AccessDenied, Exception) as e:
@@ -33,12 +33,10 @@ def _get_process_info(pid: int) -> psutil.Process | None:
 def _get_process_cwd(proc: psutil.Process) -> bytes | None:
     """Safely get the current working directory as bytes."""
     if not PSUTIL_AVAILABLE:
-        return None  # Guard clause
+        return None
     try:
-        cwd_str = proc.cwd()  # psutil returns str
-        # --- ENCODE TO BYTES ---
+        cwd_str = proc.cwd()
         cwd_bytes = os.fsencode(cwd_str)
-        # -----------------------
         log.debug(f"Retrieved CWD for PID {proc.pid}: {cwd_str!r} -> {cwd_bytes!r}")
         return cwd_bytes
     except (
@@ -59,9 +57,9 @@ def _get_process_open_files(
     Returns paths as bytes.
     """
     if not PSUTIL_AVAILABLE:
-        return []  # Guard clause
+        return []
 
-    open_files_data: list[dict[str, Any]] = []  # Use list and dict
+    open_files_data: list[dict[str, Any]] = []
     pid = proc.pid
     try:  # Get regular files
         for f in proc.open_files():
@@ -69,9 +67,7 @@ def _get_process_open_files(
             path_bytes: bytes | None = None
             if hasattr(f, "path") and f.path:
                 try:
-                    # --- ENCODE TO BYTES ---
                     path_bytes = os.fsencode(str(f.path))
-                    # -----------------------
                 except Exception as enc_err:
                     log.warning(
                         f"Could not encode path '{f.path}' for PID {pid} FD {f.fd}: {enc_err}"
@@ -127,9 +123,7 @@ def _get_process_open_files(
                 else:
                     path_str = f"<SOCKET:{conn_type_str}:{laddr_str} fd={conn.fd} status={conn.status}>"
 
-                # --- ENCODE TO BYTES ---
                 path_bytes = os.fsencode(path_str)
-                # -----------------------
 
                 open_files_data.append(
                     {

@@ -6,7 +6,7 @@ import re
 from collections.abc import Iterator
 from typing import Any
 
-log = logging.getLogger(__name__)  # Use specific logger
+log = logging.getLogger(__name__)
 
 # --- Regular Expressions (operate on strings after initial decode) ---
 FD_TYPE_RE = re.compile(r"(\d+)([rwu])?")
@@ -88,9 +88,7 @@ def _parse_lsof_f_output(
             current_record["type"] = value_str
         elif field_type_byte == b"n":
             # Name/path field, signifies the end of a file record for the current PID
-            # --- STORE PATH AS BYTES ---
             current_record["path"] = value_bytes
-            # ---------------------------
             # Assemble the complete record with PID and command context
             record_to_yield = {
                 "pid": current_pid,

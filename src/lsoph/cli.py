@@ -7,8 +7,6 @@ import sys
 
 # Import backend base class and the discovered backends dictionary
 from lsoph.backend import BACKENDS, Backend  # Import BACKENDS dict
-
-# Import TRACE_LEVEL_NUM if needed, or just rely on setup_logging
 from lsoph.log import LOG_QUEUE, setup_logging
 from lsoph.monitor import Monitor
 from lsoph.ui.app import LsophApp
@@ -98,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
     """
     temp_args = parse_arguments(BACKENDS, argv)
     setup_logging(temp_args.log, temp_args.log_file)
-    log = logging.getLogger("lsoph.cli")  # Get main cli logger
+    log = logging.getLogger("lsoph.cli")
 
     try:
         args = temp_args

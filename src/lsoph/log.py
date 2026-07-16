@@ -4,7 +4,7 @@
 import logging
 import sys
 from collections import deque
-from typing import Optional  # Added Optional type hint
+from typing import Optional
 
 # --- Define TRACE level ---
 TRACE_LEVEL_NUM = 5
@@ -18,7 +18,6 @@ def trace(self, message, *args, **kws):
 
 
 logging.Logger.trace = trace
-# --- End TRACE level definition ---
 
 
 # Global deque for log messages to be displayed in the TUI
@@ -71,10 +70,7 @@ class TextualLogHandler(logging.Handler):
             self.handleError(record)
 
 
-# --- Ensure this function signature matches the call in cli.py ---
-def setup_logging(
-    level_name: str = "INFO", log_file: Optional[str] = None
-):  # Added log_file parameter
+def setup_logging(level_name: str = "INFO", log_file: Optional[str] = None):
     """
     Configures the root logger to use the TextualLogHandler and optionally a FileHandler.
     """
@@ -84,7 +80,6 @@ def setup_logging(
         log_level = TRACE_LEVEL_NUM
     else:
         log_level = getattr(logging, level_name_upper, logging.INFO)
-    # ---------------------------
 
     root_logger = logging.getLogger()  # Get the root logger
     root_logger.setLevel(log_level)  # Set root logger level

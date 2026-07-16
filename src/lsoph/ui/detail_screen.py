@@ -3,7 +3,7 @@
 
 import datetime
 import logging
-import os  # For os.fsdecode
+import os
 from typing import Any
 
 from rich.text import Text
@@ -13,12 +13,9 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Static
 
-from lsoph.monitor import FileInfo  # FileInfo.path is bytes
-
-# short_path accepts bytes, returns str
+from lsoph.monitor import FileInfo
 from lsoph.util.short_path import short_path
 
-# Import the emoji map from the emoji module
 from .emoji import DEFAULT_EMOJI, EVENT_EMOJI_MAP
 
 log = logging.getLogger("lsoph.ui.detail")
@@ -31,7 +28,7 @@ class DetailScreen(Screen):
         Binding("escape,q,d,enter", "app.pop_screen", "Close", show=True),
     ]
 
-    def __init__(self, file_info: FileInfo):  # Receives FileInfo with bytes path
+    def __init__(self, file_info: FileInfo):
         self.file_info = file_info
         super().__init__()
 
@@ -44,10 +41,7 @@ class DetailScreen(Screen):
 
     def _create_header_text(self) -> Text:
         """Creates the header text displayed above the table (decodes path)."""
-        # --- DECODE AND SHORTEN PATH ---
-        # Use short_path utility which accepts bytes and returns decoded, shortened string
         path_display_str = short_path(self.file_info.path, 100)
-        # -----------------------------
         status = self.file_info.status.upper()
         style = ""
         if self.file_info.status == "error":
