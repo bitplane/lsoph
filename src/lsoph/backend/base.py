@@ -5,6 +5,7 @@ import asyncio
 import logging
 import os
 import signal
+import sys
 from abc import ABC, abstractmethod
 
 from lsoph.monitor import Monitor
@@ -200,25 +201,35 @@ class Backend(ABC):
         """
         if not process or process.returncode is not None:
             return
-        if not await self._signal_group(process, signal.SIGTERM, timeout=1.0):
+        if not await self._signal_group(process, graceful=True, timeout=1.0):
             log.warning(
                 f"Process group {process.pid} ignored SIGTERM; sending SIGKILL."
             )
-            await self._signal_group(process, signal.SIGKILL, timeout=None)
+            await self._signal_group(process, graceful=False, timeout=None)
 
     async def _signal_group(
         self,
         process: asyncio.subprocess.Process,
-        sig: int,
+        graceful: bool,
         timeout: float | None,
     ) -> bool:
         """Signal the process's group, then wait for it to exit. Returns True if
         it exited (or was already gone), False on timeout. process.pid is the
-        pgid, guaranteed by _spawn's start_new_session=True."""
-        try:
-            os.killpg(process.pid, sig)
-        except ProcessLookupError:
-            return True  # group already gone
+        pgid, guaranteed by _spawn's start_new_session=True.
+
+        Windows has no POSIX process groups (no os.killpg, no SIGKILL);
+        terminate() there is TerminateProcess -- forceful and leader-only, so a
+        wrapper command's children may outlive it."""
+        if sys.platform == "win32":
+            try:
+                process.terminate()
+            except ProcessLookupError:
+                return True  # already gone
+        else:
+            try:
+                os.killpg(process.pid, signal.SIGTERM if graceful else signal.SIGKILL)
+            except ProcessLookupError:
+                return True  # group already gone
         try:
             if timeout is None:
                 await process.wait()

@@ -3,6 +3,7 @@
 
 import logging
 import os
+import zlib
 
 from lsoph.monitor import Monitor
 
@@ -17,6 +18,21 @@ from .helpers import (
 log = logging.getLogger(__name__)
 
 DEFAULT_PSUTIL_POLL_INTERVAL = 0.5
+
+
+def _entry_fd(entry: dict) -> int | None:
+    """Key an open-files entry for snapshot diffing, or None to skip it.
+
+    On Windows psutil reports open files with fd == -1 (they are NT handles,
+    not POSIX fds), which would otherwise be skipped -- i.e. every file on
+    Windows. The path is the stable identity there, so derive a pseudo-fd from
+    it. Sockets without a real fd are still skipped."""
+    fd = entry["fd"]
+    if fd >= 0:
+        return fd
+    if entry.get("type") != "file":
+        return None
+    return zlib.crc32(entry["path"])
 
 
 class Psutil(PollingBackend):
@@ -72,9 +88,9 @@ class Psutil(PollingBackend):
 
             files = PidFiles()
             for entry in _get_process_open_files(proc):
-                fd: int = entry["fd"]
-                if fd < 0:
-                    continue  # Sockets without a real fd, etc.
+                fd = _entry_fd(entry)
+                if fd is None:
+                    continue  # Sockets without a real fd.
                 mode: str = entry.get("mode", "")
                 files.fds[fd] = OpenFile(
                     fd=fd,
