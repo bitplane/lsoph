@@ -8,6 +8,7 @@ from typing import Type
 
 from .base import Backend
 from .dtruss import Dtruss
+from .etw import Etw
 from .fsusage import Fsusage
 from .ktrace import Ktrace
 from .lsof import Lsof
@@ -25,7 +26,7 @@ log.debug("Starting backend discovery...")
 # event-stream tracers over pollers, so e.g. the default is strace on Linux.
 BACKENDS: dict[str, Type[Backend]] = {
     backend.__name__.lower(): backend
-    for backend in (Strace, Truss, Dtruss, Ktrace, Fsusage, Preload, Psutil, Lsof)
+    for backend in (Strace, Truss, Dtruss, Ktrace, Fsusage, Etw, Preload, Psutil, Lsof)
     if backend.is_available()
 }
 

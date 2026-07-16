@@ -31,6 +31,7 @@ are two kinds:
 | `dtruss`   | 🍏😈      | tracer  | root (+ SIP off on macOS) | DTrace-based |
 | `ktrace`   | 😈        | tracer  | privilege                 | OpenBSD / NetBSD / FreeBSD |
 | `fs_usage` | 🍏        | tracer  | root                      | macOS |
+| `etw`      | 🪟        | tracer  | admin                     | ETW Kernel-File events |
 | `psutil`   | 🐧🍏😈🪟  | poller  | —                         | open files only |
 | `lsof`     | 🐧🍏😈    | poller  | —                         | open files only |
 
@@ -44,12 +45,13 @@ works without any of that.
 > The `strace`, `preload`, `psutil` and `lsof` backends are exercised on Linux.
 > The BSD/macOS tracers (`truss`, `dtruss`, `ktrace`, `fs_usage`) are built and
 > tested against their documented output formats but still want a smoke-test on
-> real hardware — reports welcome.
+> real hardware — reports welcome. `etw` is built against the documented
+> Kernel-File event layouts and smoke-tested under Wine (where the session
+> APIs work but events don't flow); it wants validation on real Windows.
 
 ## Future?
 
 * Native Linux backends — `fanotify`, or eBPF (`bpftrace` / BCC)
-* Windows — ETW (Kernel-FileIO), or a `handle.exe` poller
 * `osquery` — one polling backend, three OSes
 * `gdb` / `lldb` debugger-scripting backends (cross-platform, slow)
 * `DYLD_INSERT_LIBRARIES` shim for macOS (the preload sibling)

@@ -5,6 +5,7 @@ import pytest
 
 from lsoph.backend import BACKENDS
 from lsoph.backend.dtruss import Dtruss
+from lsoph.backend.etw import Etw
 from lsoph.backend.fsusage import Fsusage
 from lsoph.backend.ktrace import Ktrace
 from lsoph.backend.lsof import Lsof
@@ -15,7 +16,7 @@ from lsoph.backend.truss import Truss
 from lsoph.cli import parse_arguments
 
 # All backend classes, not just the ones available on this host.
-ALL_BACKENDS = (Strace, Truss, Dtruss, Ktrace, Fsusage, Preload, Psutil, Lsof)
+ALL_BACKENDS = (Strace, Truss, Dtruss, Ktrace, Fsusage, Etw, Preload, Psutil, Lsof)
 
 
 def test_every_backend_declares_a_description():
