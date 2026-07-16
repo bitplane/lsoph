@@ -11,6 +11,7 @@ from .dtruss import Dtruss
 from .fsusage import Fsusage
 from .ktrace import Ktrace
 from .lsof import Lsof
+from .preload import Preload
 from .psutil import Psutil
 from .strace import Strace
 from .truss import Truss
@@ -22,7 +23,7 @@ log = logging.getLogger("lsoph.backend")
 log.debug("Starting backend discovery...")
 BACKENDS: dict[str, Type[Backend]] = {
     backend.__name__.lower(): backend
-    for backend in (Lsof, Psutil, Strace, Truss, Fsusage, Dtruss, Ktrace)
+    for backend in (Lsof, Psutil, Strace, Truss, Fsusage, Dtruss, Ktrace, Preload)
     if backend.is_available()
 }
 

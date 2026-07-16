@@ -73,6 +73,12 @@ class TracerBackend(Backend):
         """Consume raw trace lines and update self.monitor until the stream ends."""
         raise NotImplementedError  # pragma: no cover
 
+    def build_env(self, output_path: str | None) -> dict[str, str] | None:
+        """Extra environment variables for the tracer subprocess (merged over the
+        inherited environment), or None to inherit unchanged. Used e.g. to set
+        LD_PRELOAD for the preload backend."""
+        return None
+
     # --- Lifecycle ---
 
     async def attach(self, pids: list[int]):
@@ -105,6 +111,8 @@ class TracerBackend(Backend):
             return
 
         log.info(f"Executing tracer: {' '.join(shlex.quote(a) for a in argv)}")
+        extra_env = self.build_env(output_path)
+        env = {**os.environ, **extra_env} if extra_env else None
         try:
             process = await asyncio.create_subprocess_exec(
                 *argv,
@@ -114,6 +122,7 @@ class TracerBackend(Backend):
                     else asyncio.subprocess.DEVNULL
                 ),
                 stderr=asyncio.subprocess.PIPE,
+                env=env,
             )
         except (FileNotFoundError, OSError) as e:
             log.error(f"Failed to launch tracer {type(self).__name__}: {e}")
