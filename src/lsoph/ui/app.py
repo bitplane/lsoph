@@ -1,19 +1,14 @@
 # Filename: src/lsoph/ui/app.py
 """Main Textual application class for lsoph. Handles bytes paths from Monitor."""
 
-import asyncio
 import logging
 import os  # For os.fsdecode
-import time
 from collections import deque
-from collections.abc import Callable, Coroutine
+from collections.abc import Coroutine
 from typing import Any, Optional
 
-from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.dom import NoMatches
 from textual.reactive import reactive
 
 # Import DataTable event types
@@ -132,11 +127,9 @@ class LsophApp(App[None]):
         worker = self._backend_worker
         if worker and worker.state == WorkerState.RUNNING:
             log.info(f"Requesting cancellation for Textual worker {worker.name}...")
-            try:
-                await worker.cancel()
-                log.info(f"Textual worker {worker.name} cancellation requested.")
-            except Exception as e:
-                log.error(f"Error cancelling Textual worker {worker.name}: {e}")
+            # Worker.cancel() is synchronous and returns None; do not await it.
+            worker.cancel()
+            log.info(f"Textual worker {worker.name} cancellation requested.")
         self._backend_worker = None
 
     # --- App Lifecycle ---
@@ -178,7 +171,8 @@ class LsophApp(App[None]):
             # FileDataTable.update_data accepts FileInfo list (with bytes paths)
             self._file_table.update_data(active_files)
             self.update_status(
-                f"Tracking {len(active_files)} files. Ignored: {len(self.monitor.ignored_paths)}. Monitor v{new_version}"
+                f"Tracking {len(active_files)} files. "
+                f"Ignored: {len(self.monitor.ignored_paths)}. Monitor v{new_version}"
             )
 
     def watch_status_text(self, old_text: str, new_text: str) -> None:
@@ -203,7 +197,7 @@ class LsophApp(App[None]):
             and not self._backend_stopped_notified
         ):
             self._backend_stopped_notified = True
-            status_msg = f"Error: Monitoring backend stopped unexpectedly!"
+            status_msg = "Error: Monitoring backend stopped unexpectedly!"
             log_msg = f"Backend worker {worker.name} stopped unexpectedly (state: {worker.state})."
             log.error(log_msg + " Check previous logs for potential errors.")
             self.update_status(status_msg)
@@ -225,12 +219,7 @@ class LsophApp(App[None]):
     # --- Event Handlers ---
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """Handle row selection (Enter key) - show details."""
-        if event.control is self._file_table:
-            self._show_detail_for_selected_row()
-
-    def on_data_table_row_activated(self, event: "DataTable.RowActivated") -> None:
-        """Handle row activation (Double Click) - show details."""
+        """Handle row selection (Enter key or click) - show details."""
         if event.control is self._file_table:
             self._show_detail_for_selected_row()
 
@@ -243,16 +232,13 @@ class LsophApp(App[None]):
         self.exit()
 
     def _ensure_table_focused(self) -> bool:
-        """Checks if the file table exists and is focused."""
+        """True if the file table exists, we're on the main screen, and it holds focus."""
         if not self._file_table:
             return False
-        if self.screen is not self:
+        # Only act on the base screen, not while a detail/log screen is pushed.
+        if self.screen is not self.screen_stack[0]:
             return False
-        if not self._file_table.has_focus and not self.focused_descendant_is_widget(
-            self._file_table
-        ):
-            return False
-        return True
+        return self._file_table.has_focus_within
 
     def action_ignore_selected(self) -> None:
         """Action to ignore the currently selected file path (bytes)."""
@@ -397,10 +383,12 @@ class LsophApp(App[None]):
                 path_str = os.fsdecode(info.path)
                 # ---------------------------------------------
                 log.debug(
-                    f"  {path_str!r}: Status={info.status}, Open={info.is_open}, R/W={info.bytes_read}/{info.bytes_written}, Last={info.last_event_type}, PIDs={list(info.open_by_pids.keys())}"
+                    f"  {path_str!r}: Status={info.status}, Open={info.is_open}, "
+                    f"R/W={info.bytes_read}/{info.bytes_written}, "
+                    f"Last={info.last_event_type}, PIDs={list(info.open_by_pids.keys())}"
                 )
             log.debug("--- End Monitor State Dump ---")
             self.notify("Monitor state dumped to log (debug level).")
-        except Exception as e:
+        except Exception:
             log.exception("Error during monitor state dump.")
             self.notify("Error dumping monitor state.", severity="error")
