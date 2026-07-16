@@ -347,8 +347,17 @@ class Strace(Backend):
         """Launches strace, sets up FIFO reading, stderr reading, and processes events."""
         try:
             with temp_fifo(prefix="lsoph_strace_") as fifo_path:
-                # 1. Add the -o option pointing to the FIFO
-                strace_command_with_output = strace_command + ["-o", fifo_path]
+                # 1. Add the -o option pointing to the FIFO. It must precede the
+                # "--" that separates strace's own args from the traced command,
+                # otherwise "-o <fifo>" is passed to the command instead of strace.
+                output_opt = ["-o", fifo_path]
+                if "--" in strace_command:
+                    sep = strace_command.index("--")
+                    strace_command_with_output = (
+                        strace_command[:sep] + output_opt + strace_command[sep:]
+                    )
+                else:
+                    strace_command_with_output = strace_command + output_opt
                 log.info(
                     f"Executing strace command: "
                     f"{' '.join(shlex.quote(s) for s in strace_command_with_output)}"
