@@ -26,3 +26,17 @@ def test_rename_to_ignored_path_deletes_source():
     monitor.rename(100, b"/a", b"/ignored", True, 2.0)
 
     assert monitor.files[b"/a"].status == "deleted"
+
+
+def test_rename_path_to_itself_preserves_file_and_fd_state():
+    """A successful no-op rename must not delete the tracked file."""
+    monitor = Monitor(identifier="t")
+    monitor.open(100, b"/a", 3, True, 1.0)
+
+    monitor.rename(100, b"/a", b"/a", True, 2.0)
+
+    info = monitor.files[b"/a"]
+    assert info.status == "open"
+    assert info.last_event_type == "RENAME"
+    assert info.open_by_pids == {100: {3}}
+    assert monitor.pid_fd_map == {100: {3: b"/a"}}

@@ -418,6 +418,17 @@ class Monitor(Versioned):
             self.stat(pid, new_path, True, timestamp, renamed_from_unknown=old_path)
             return
 
+        # rename(path, path) succeeds without moving anything. Treat it as an
+        # event on the existing entry; the transfer logic below assumes two
+        # distinct dictionary keys and would otherwise delete the sole entry.
+        if old_path == new_path:
+            event_details = details.copy()
+            event_details.update({"renamed_from": old_path, "renamed_to": new_path})
+            self._finalize_update(
+                old_info, "RENAME", success, timestamp, event_details
+            )
+            return
+
         try:
             new_info = self._get_or_create_fileinfo(new_path, timestamp)
         except ValueError:
