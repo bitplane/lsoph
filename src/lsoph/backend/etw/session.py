@@ -36,6 +36,7 @@ log = logging.getLogger(__name__)
 # --- constants (evntrace.h / evntcons.h) ---
 
 WNODE_FLAG_TRACED_GUID = 0x00020000
+EVENT_TRACE_CLOCK_SYSTEM_TIME = 2
 EVENT_TRACE_REAL_TIME_MODE = 0x00000100
 PROCESS_TRACE_MODE_REAL_TIME = 0x00000100
 PROCESS_TRACE_MODE_EVENT_RECORD = 0x10000000
@@ -274,7 +275,9 @@ class KernelFileSession:
         props = EVENT_TRACE_PROPERTIES()
         props.Wnode.BufferSize = ctypes.sizeof(EVENT_TRACE_PROPERTIES)
         props.Wnode.Flags = WNODE_FLAG_TRACED_GUID
-        props.Wnode.ClientContext = 1  # query performance counter timestamps
+        # EVENT_HEADER.TimeStamp must use the FILETIME-compatible system clock;
+        # _filetime_to_unix converts those 100 ns values to Unix timestamps.
+        props.Wnode.ClientContext = EVENT_TRACE_CLOCK_SYSTEM_TIME
         props.LogFileMode = EVENT_TRACE_REAL_TIME_MODE
         props.LoggerNameOffset = EVENT_TRACE_PROPERTIES.LoggerName.offset
         return props

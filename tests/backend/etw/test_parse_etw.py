@@ -14,6 +14,19 @@ from lsoph.backend.etw.parse import (
     READ,
     parse_event,
 )
+from lsoph.backend.etw.session import (
+    EVENT_TRACE_CLOCK_SYSTEM_TIME,
+    KernelFileSession,
+)
+
+
+def test_session_requests_filetime_compatible_timestamps():
+    """The session clock must match the FILETIME conversion used by callbacks."""
+    session = object.__new__(KernelFileSession)
+
+    props = session._properties()
+
+    assert props.Wnode.ClientContext == EVENT_TRACE_CLOCK_SYSTEM_TIME
 
 
 def _wstr(text: str) -> bytes:
