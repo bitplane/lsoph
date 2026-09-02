@@ -55,11 +55,17 @@ class Etw(Backend):
         from . import session as session_module
 
         watched = {p for p in pids if p > 0}
+        watched_lock = threading.Lock()
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[FileEvent] = asyncio.Queue()
 
         def on_event(event: FileEvent) -> None:
             # Called on the ProcessTrace thread.
+            # Filter the system-wide provider here so unrelated file activity
+            # cannot build an unbounded backlog on the asyncio loop.
+            with watched_lock:
+                if event.pid not in watched:
+                    return
             loop.call_soon_threadsafe(queue.put_nowait, event)
 
         session = session_module.KernelFileSession(SESSION_NAME, on_event)
@@ -83,8 +89,13 @@ class Etw(Backend):
                     log.error("ETW consumer thread died; stopping backend.")
                     break
                 if time.monotonic() >= next_child_check:
-                    for pid in list(watched):
-                        watched.update(get_descendants(pid))
+                    with watched_lock:
+                        watched_snapshot = list(watched)
+                    descendants = set()
+                    for pid in watched_snapshot:
+                        descendants.update(get_descendants(pid))
+                    with watched_lock:
+                        watched.update(descendants)
                     next_child_check = time.monotonic() + CHILD_CHECK_INTERVAL
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=0.5)
