@@ -73,12 +73,13 @@ async def _run_lsof_command_async(
     if not lsof_path:
         raise FileNotFoundError("lsof command not found in PATH")
 
-    # Base command: -n (no host resolution), -P (no port resolution), -F pcftn (parseable output)
+    # Base command: -n (no host resolution), -P (no port resolution),
+    # -F pcfatn (parseable output, including the access mode)
     # Added +c 0 to show full command names
     # Added +L to prevent listing link counts (can be slow)
     # Use bytes for command parts that might interact with filesystem directly if needed,
     # though usually exec takes strings. Sticking with strings for cmd list itself.
-    cmd = [lsof_path, "-n", "-P", "+c", "0", "+L", "-F", "pcftn"]
+    cmd = [lsof_path, "-n", "-P", "+c", "0", "+L", "-F", "pcfatn"]
     if pids:
         # Filter out non-positive PIDs just in case
         valid_pids = [str(p) for p in pids if p > 0]
@@ -234,6 +235,11 @@ async def _lsof_snapshot(pids: list[int]) -> Snapshot:
         path_bytes: bytes | None = record.get("path")
         fd = record.get("fd")
         mode: str = record.get("mode", "")
+
+        # Pipes, sockets and anonymous inodes are named "pipe", "protocol: TCP",
+        # "[eventfd]", ...: not files.
+        if not path_bytes or not path_bytes.startswith(b"/"):
+            continue
 
         if fd is None:
             # Special entry (cwd/mem/txt/DEL): report as a stat, not an fd.
