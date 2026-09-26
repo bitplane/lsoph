@@ -36,6 +36,10 @@ class Monitor(Versioned):
         self.identifier = identifier
         self.ignored_paths = set()
         self.pid_fd_map = {}
+        # (pid, fd) pairs the OS lookup couldn't resolve (sockets, pipes, fds
+        # from before tracing): don't repeat the lookup on every read/write.
+        # Forgotten whenever that fd is opened or closed, or the pid exits.
+        self._unresolvable_fds: set[tuple[int, int]] = set()
         self.files = {}
         self.backend_pid = None
         log.info(f"Initialized Monitor for identifier: '{identifier}'")
@@ -86,6 +90,7 @@ class Monitor(Versioned):
     @changes
     def _update_pid_fd_map(self, pid: int, fd: int, path: bytes | None):
         """Updates or removes entries in the pid_fd_map."""
+        self._unresolvable_fds.discard((pid, fd))
         if path:
             if pid not in self.pid_fd_map:
                 self.pid_fd_map[pid] = {}
@@ -480,6 +485,7 @@ class Monitor(Versioned):
     @changes
     def process_exit(self, pid: int, timestamp: float):
         """Handles cleanup when a process exits."""
+        self._unresolvable_fds = {k for k in self._unresolvable_fds if k[0] != pid}
         if pid not in self.pid_fd_map:
             return
 
@@ -519,9 +525,16 @@ class Monitor(Versioned):
         if path is not None:
             return path
 
-        path = get_fd_path(pid, fd)
+        if (pid, fd) in self._unresolvable_fds:
+            raise KeyError(f"pid={pid} fd={fd} is not a known file")
+        try:
+            path = get_fd_path(pid, fd)
+        except KeyError:
+            self._unresolvable_fds.add((pid, fd))
+            raise
         if path:
             self._update_pid_fd_map(pid, fd, path)
             return path
 
+        self._unresolvable_fds.add((pid, fd))
         raise KeyError(f"pid={pid} does not have fd={fd}")

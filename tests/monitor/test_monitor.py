@@ -120,3 +120,29 @@ def test_std_streams_can_be_ignored_but_ignore_all_keeps_them():
     monitor.ignore(b"<STDOUT>")
     monitor.write(100, 1, None, True, 2.0, bytes=3)
     assert set(monitor.files) == {b"<STDERR>"}
+
+
+def test_unresolvable_fd_is_looked_up_once_until_reopened(monkeypatch):
+    import pytest
+
+    import lsoph.monitor._monitor as monitor_module
+
+    lookups = []
+
+    def fake_get_fd_path(pid, fd):
+        lookups.append((pid, fd))
+        raise KeyError("socket")
+
+    monkeypatch.setattr(monitor_module, "get_fd_path", fake_get_fd_path)
+    monitor = Monitor(identifier="t")
+
+    for _ in range(3):
+        with pytest.raises(KeyError):
+            monitor.read(100, 9, None, True, 1.0, bytes=1)
+    assert lookups == [(100, 9)]
+
+    # Closing and reusing the fd number for a real file resets it.
+    monitor.close(100, 9, True, 2.0)
+    monitor.open(100, b"/a", 9, True, 3.0)
+    monitor.read(100, 9, None, True, 4.0, bytes=1)
+    assert monitor.files[b"/a"].bytes_read == 1
