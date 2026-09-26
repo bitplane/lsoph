@@ -112,3 +112,16 @@ def test_ignore_keys_do_nothing_while_the_log_screen_is_up():
         return app.monitor.ignored_paths
 
     assert _drive(scenario) == set()
+
+
+def test_age_column_keeps_counting_while_the_monitor_is_idle():
+    """No monitor change for a while must still age the rows."""
+
+    async def scenario(app, pilot):
+        await pilot.pause(0.5)  # let the first version check redraw
+        info = app.monitor.files[b"/tmp/example.txt"]
+        info.last_activity_ts = time.time() - 120  # no version bump
+        await pilot.pause(1.5)
+        return str(app._file_table.get_cell_at((0, 3))).strip()
+
+    assert _drive(scenario) == "2m"

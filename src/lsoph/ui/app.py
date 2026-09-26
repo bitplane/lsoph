@@ -24,6 +24,9 @@ from .log_screen import LogScreen
 # Type alias for the backend coroutine (attach or run_command)
 BackendCoroutine = Coroutine[Any, Any, None]
 
+# Seconds between redraws with no monitor change, to keep ages current.
+AGE_REFRESH_INTERVAL = 1.0
+
 log = logging.getLogger("lsoph.ui.app")
 
 
@@ -136,6 +139,7 @@ class LsophApp(App[None]):
             log.exception(f"Error getting FileDataTable on mount: {e}")
         self.start_backend_worker()
         self.set_interval(self._update_interval, self.check_monitor_version)
+        self.set_interval(AGE_REFRESH_INTERVAL, self._refresh_table)
         log.info("UI Mounted, update timer started, backend worker started.")
 
     async def on_unmount(self) -> None:
@@ -147,21 +151,27 @@ class LsophApp(App[None]):
 
     def watch_last_monitor_version(self, old_version: int, new_version: int) -> None:
         """Triggers table update when monitor version changes."""
+        if new_version > old_version:
+            self._refresh_table()
+
+    def _refresh_table(self) -> None:
+        """Redraw the file table from the monitor. Also run on a timer, so the
+        Age column keeps counting while the target is idle."""
         if not self._file_table:
             return
-        if new_version > old_version:
-            all_files: list[FileInfo] = list(self.monitor)
-            active_files = [
-                info
-                for info in all_files
-                if info.path not in self.monitor.ignored_paths
-            ]
-            active_files.sort(key=lambda info: info.last_activity_ts, reverse=True)
-            self._file_table.update_data(active_files)
-            self.update_status(
-                f"Tracking {len(active_files)} files. "
-                f"Ignored: {len(self.monitor.ignored_paths)}. Monitor v{new_version}"
-            )
+        all_files: list[FileInfo] = list(self.monitor)
+        active_files = [
+            info for info in all_files if info.path not in self.monitor.ignored_paths
+        ]
+        active_files.sort(key=lambda info: info.last_activity_ts, reverse=True)
+        self._file_table.update_data(active_files)
+        if self._backend_stopped_notified:
+            return  # keep the "finished"/"failed" status visible
+        self.update_status(
+            f"Tracking {len(active_files)} files. "
+            f"Ignored: {len(self.monitor.ignored_paths)}. "
+            f"Monitor v{self.last_monitor_version}"
+        )
 
     def watch_status_text(self, old_text: str, new_text: str) -> None:
         """Updates the status bar widget when status_text changes."""
