@@ -62,20 +62,24 @@ class Etw(Backend):
         # Kernel paths arrive as \Device\HarddiskVolumeN\...; map to drives.
         device_map = session_module.dos_device_map() if sys.platform == "win32" else {}
 
-        def on_event(event: FileEvent) -> None:
-            # Called on the ProcessTrace thread.
-            # Filter the system-wide provider here so unrelated file activity
-            # cannot build an unbounded backlog on the asyncio loop.
+        def want_pid(pid: int) -> bool:
+            # Called on the ProcessTrace thread for every system-wide event,
+            # before it's parsed: unrelated file activity must cost nothing
+            # and never build a backlog on the asyncio loop.
             with watched_lock:
-                if event.pid not in watched:
-                    return
+                return pid in watched
+
+        def on_event(event: FileEvent) -> None:
+            # Called on the ProcessTrace thread, for watched pids only.
             if event.path:
                 event = dataclasses.replace(
                     event, path=translate_nt_path(event.path, device_map)
                 )
             loop.call_soon_threadsafe(queue.put_nowait, event)
 
-        session = session_module.KernelFileSession(SESSION_NAME, on_event)
+        session = session_module.KernelFileSession(
+            SESSION_NAME, on_event, want_pid=want_pid
+        )
 
         def pump() -> None:
             # Session failures (no privilege, ETW unavailable) land here on

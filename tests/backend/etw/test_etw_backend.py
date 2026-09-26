@@ -16,7 +16,7 @@ def test_attach_stops_cleanly_when_the_session_fails(monkeypatch):
     exactly what happens under Wine, where OpenTraceW is not implemented."""
 
     class FailingSession:
-        def __init__(self, name, on_event):
+        def __init__(self, name, on_event, want_pid=None):
             pass
 
         def run(self):
@@ -38,7 +38,7 @@ def test_attach_dispatches_events_from_the_session_thread(monkeypatch):
     from lsoph.backend.etw.parse import CREATE, FileEvent
 
     class OneEventSession:
-        def __init__(self, name, on_event):
+        def __init__(self, name, on_event, want_pid=None):
             self.on_event = on_event
             self.stopped = False
 
@@ -70,13 +70,19 @@ def test_attach_filters_unwatched_events_on_the_session_thread(monkeypatch):
     from lsoph.backend.etw.parse import CREATE, FileEvent
 
     class TwoEventSession:
-        def __init__(self, name, on_event):
+        def __init__(self, name, on_event, want_pid=None):
             self.on_event = on_event
+            self.want_pid = want_pid
             self.stopped = False
 
         def run(self):
-            self.on_event(FileEvent(CREATE, 999, 1.0, 0xBAD, path=rb"C:\other"))
-            self.on_event(FileEvent(CREATE, 123, 1.0, 0xBEEF, path=rb"C:\seen"))
+            # Like the real session: consult want_pid on the header first.
+            for event in (
+                FileEvent(CREATE, 999, 1.0, 0xBAD, path=rb"C:\other"),
+                FileEvent(CREATE, 123, 1.0, 0xBEEF, path=rb"C:\seen"),
+            ):
+                if self.want_pid(event.pid):
+                    self.on_event(event)
             while not self.stopped:
                 time.sleep(0.01)
 

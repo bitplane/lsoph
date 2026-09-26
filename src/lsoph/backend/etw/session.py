@@ -291,9 +291,12 @@ class KernelFileSession:
     session, which unblocks run().
     """
 
-    def __init__(self, name: str, on_event):
+    def __init__(self, name: str, on_event, want_pid=None):
         self.name = name
         self.on_event = on_event
+        # Checked against the event header before anything is copied or
+        # parsed: the provider is system-wide, and most events are unwanted.
+        self.want_pid = want_pid or (lambda pid: True)
         self._session_handle = c_uint64(0)
         self._advapi32 = _advapi32()  # win32 only, by construction
         # Serializes starting the session against stop(): a stop() that lands
@@ -385,6 +388,8 @@ class KernelFileSession:
     def _on_record(self, record) -> None:
         header = record.contents.EventHeader
         if header.ProviderId.Data1 != KERNEL_FILE_PROVIDER.Data1:
+            return
+        if not self.want_pid(header.ProcessId):
             return
         pointer_size = 4 if header.Flags & EVENT_HEADER_FLAG_32_BIT_HEADER else 8
         length = record.contents.UserDataLength

@@ -79,3 +79,23 @@ def test_stop_during_start_still_tears_the_session_down(monkeypatch):
 
     assert not thread.is_alive()
     assert not fake.running.is_set()
+
+
+def test_unwanted_pids_are_dropped_before_parsing(monkeypatch):
+    fake = FakeAdvapi32()
+    monkeypatch.setattr(etw_session, "_advapi32", lambda: fake)
+    parsed = []
+    monkeypatch.setattr(
+        etw_session, "parse_event", lambda *args: parsed.append(args[3]) or None
+    )
+    session = etw_session.KernelFileSession(
+        "t", lambda event: None, want_pid=lambda pid: pid == 123
+    )
+
+    for pid in (999, 123):
+        record = etw_session.EVENT_RECORD()
+        record.EventHeader.ProviderId = etw_session.KERNEL_FILE_PROVIDER
+        record.EventHeader.ProcessId = pid
+        session._on_record(ctypes.pointer(record))
+
+    assert parsed == [123]
