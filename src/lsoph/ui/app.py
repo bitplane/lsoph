@@ -228,18 +228,19 @@ class LsophApp(App[None]):
         await self.cancel_backend_worker()
         self.exit()
 
+    def _on_main_screen(self) -> bool:
+        """True if the file table exists and no detail/log screen is pushed."""
+        return bool(self._file_table) and self.screen is self.screen_stack[0]
+
     def _ensure_table_focused(self) -> bool:
         """True if the file table exists, we're on the main screen, and it holds focus."""
-        if not self._file_table:
-            return False
-        # Only act on the base screen, not while a detail/log screen is pushed.
-        if self.screen is not self.screen_stack[0]:
-            return False
-        return self._file_table.has_focus_within
+        return self._on_main_screen() and self._file_table.has_focus_within
 
     def action_ignore_selected(self) -> None:
         """Action to ignore the currently selected file path (bytes)."""
-        if not self._file_table:
+        # App-level bindings stay live under pushed screens; the selection
+        # isn't visible there, so don't act on it.
+        if not self._on_main_screen():
             return
 
         path_to_ignore_bytes = self._file_table.selected_path
@@ -256,7 +257,7 @@ class LsophApp(App[None]):
 
     def action_ignore_all(self) -> None:
         """Action to ignore all currently tracked files."""
-        if not self._file_table:
+        if not self._on_main_screen():
             return
 
         log.info("Ignoring all tracked files.")

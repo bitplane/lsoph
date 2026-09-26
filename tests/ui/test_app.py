@@ -94,3 +94,21 @@ def test_pressing_i_while_unfocused_does_not_open_detail_screen():
         return isinstance(app.screen, DetailScreen)
 
     assert _drive(scenario) is False
+
+
+def test_ignore_keys_do_nothing_while_the_log_screen_is_up():
+    """'d' and 'x' act on the hidden table's selection; not from the log screen."""
+
+    async def scenario(app, pilot):
+        app._file_table.focus()
+        await pilot.pause()
+        await pilot.press("l")
+        await pilot.pause()
+
+        await pilot.press("d")
+        await pilot.press("x")
+        await pilot.pause()
+
+        return app.monitor.ignored_paths
+
+    assert _drive(scenario) == set()
