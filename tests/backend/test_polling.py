@@ -49,13 +49,13 @@ def test_reconcile_open_emits_open_and_read_write():
     info = backend.monitor.files[b"/a"]
     assert info.status == "active"  # read/write bumps status past "open"
     assert info.open_by_pids == {100: {3}}
-    assert seen[100][3].path == b"/a"
+    assert seen[100].fds[3].path == b"/a"
 
 
 def test_reconcile_close_when_fd_disappears():
     """An fd present last cycle but gone this cycle is closed."""
     backend = _backend()
-    seen = {100: {3: OpenFile(3, b"/a", read=False, write=False)}}
+    seen = {100: PidFiles(fds={3: OpenFile(3, b"/a", read=False, write=False)})}
     backend.monitor.open(100, b"/a", 3, True, 1.0)
     monitored = {100}
 
@@ -99,10 +99,23 @@ def test_reconcile_stat_entries_are_reported():
     assert backend.monitor.files[b"/etc/ld.so.cache"].status == "accessed"
 
 
+def test_reconcile_unchanged_stat_entries_are_not_re_reported():
+    """A library mapped for the whole run is one access, not one per poll."""
+    backend = _backend()
+    seen = {}
+    for ts in (1.0, 2.0, 3.0):
+        snapshot = {100: PidFiles(stats=[b"/usr/lib/libc.so.6"])}
+        backend._reconcile(snapshot, seen, {100}, timestamp=ts)
+
+    info = backend.monitor.files[b"/usr/lib/libc.so.6"]
+    assert info.last_activity_ts == 1.0
+    assert len(info.event_history) == 1
+
+
 def test_reconcile_exited_pid_triggers_process_exit():
     """A monitored pid absent from the snapshot has its fds closed and is dropped."""
     backend = _backend()
-    seen = {100: {3: OpenFile(3, b"/a", read=False, write=False)}}
+    seen = {100: PidFiles(fds={3: OpenFile(3, b"/a", read=False, write=False)})}
     backend.monitor.open(100, b"/a", 3, True, 1.0)
     monitored = {100}
 

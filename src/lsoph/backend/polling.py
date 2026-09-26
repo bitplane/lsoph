@@ -77,7 +77,7 @@ class PollingBackend(Backend):
         log.info(
             f"Starting {type(self).__name__} polling loop. PIDs: {sorted(monitored)}"
         )
-        seen: dict[int, dict[int, OpenFile]] = {}
+        seen: dict[int, PidFiles] = {}
         poll_count = 0
         try:
             while not self.should_stop:
@@ -127,7 +127,7 @@ class PollingBackend(Backend):
     def _reconcile(
         self,
         snapshot: Snapshot,
-        seen: dict[int, dict[int, OpenFile]],
+        seen: dict[int, PidFiles],
         monitored: set[int],
         timestamp: float,
     ) -> None:
@@ -137,7 +137,8 @@ class PollingBackend(Backend):
         exited PIDs).
         """
         for pid, files in snapshot.items():
-            prev = seen.get(pid, {})
+            prev_files = seen.get(pid, PidFiles())
+            prev = prev_files.fds
             for fd, current in files.fds.items():
                 previous = prev.get(fd)
                 if previous is None:
@@ -150,12 +151,14 @@ class PollingBackend(Backend):
             for fd in prev:
                 if fd not in files.fds:
                     self.monitor.close(pid, fd, True, timestamp, source="poll")
-            for path in files.stats:
+            # cwd/txt/mem paths persist across polls; only a new one is news
+            # (re-reporting each poll would make them look forever active).
+            for path in set(files.stats) - set(prev_files.stats):
                 self.monitor.stat(pid, path, True, timestamp, source="poll")
-            seen[pid] = files.fds
+            seen[pid] = files
 
         for pid in [p for p in monitored if p not in snapshot]:
-            for fd in seen.get(pid, {}):
+            for fd in seen.get(pid, PidFiles()).fds:
                 self.monitor.close(pid, fd, True, timestamp, source="poll_exit")
             self.monitor.process_exit(pid, timestamp)
             monitored.discard(pid)
