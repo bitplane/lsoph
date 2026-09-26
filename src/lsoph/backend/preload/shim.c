@@ -67,9 +67,9 @@ __attribute__((constructor)) static void lsoph_init(void) {
         va_end(ap);                                                            \
     }                                                                          \
     int ret = realname;                                                        \
-    int err = ret < 0 ? errno : 0;                                             \
+    int saved_errno = errno, err = ret < 0 ? saved_errno : 0;                  \
     record("OPEN", ret, ret, err, path, NULL);                                 \
-    errno = err;                                                               \
+    errno = saved_errno;                                                       \
     return ret;
 
 int open(const char *path, int flags, ...) {
@@ -105,9 +105,9 @@ int creat(const char *path, mode_t mode) {
     if (!real)
         real = dlsym(RTLD_NEXT, "creat");
     int ret = real(path, mode);
-    int err = ret < 0 ? errno : 0;
+    int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
     record("OPEN", ret, ret, err, path, NULL);
-    errno = err;
+    errno = saved_errno;
     return ret;
 }
 
@@ -118,10 +118,10 @@ int close(int fd) {
     if (!real)
         real = dlsym(RTLD_NEXT, "close");
     int ret = real(fd);
-    int err = ret < 0 ? errno : 0;
+    int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
     if (fd != lsoph_fd)
         record("CLOSE", fd, ret, err, NULL, NULL);
-    errno = err;
+    errno = saved_errno;
     return ret;
 }
 
@@ -130,10 +130,10 @@ ssize_t read(int fd, void *buf, size_t count) {
     if (!real)
         real = dlsym(RTLD_NEXT, "read");
     ssize_t ret = real(fd, buf, count);
-    int err = ret < 0 ? errno : 0;
+    int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
     if (fd != lsoph_fd)
         record("READ", fd, (long)ret, err, NULL, NULL);
-    errno = err;
+    errno = saved_errno;
     return ret;
 }
 
@@ -142,10 +142,10 @@ ssize_t write(int fd, const void *buf, size_t count) {
     if (!real)
         real = dlsym(RTLD_NEXT, "write");
     ssize_t ret = real(fd, buf, count);
-    int err = ret < 0 ? errno : 0;
+    int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
     if (fd != lsoph_fd)
         record("WRITE", fd, (long)ret, err, NULL, NULL);
-    errno = err;
+    errno = saved_errno;
     return ret;
 }
 
@@ -156,9 +156,9 @@ int access(const char *path, int mode) {
     if (!real)
         real = dlsym(RTLD_NEXT, "access");
     int ret = real(path, mode);
-    int err = ret < 0 ? errno : 0;
+    int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
     record("STAT", -1, ret, err, path, NULL);
-    errno = err;
+    errno = saved_errno;
     return ret;
 }
 
@@ -167,9 +167,9 @@ int stat(const char *path, struct stat *st) {
     if (!real)
         real = dlsym(RTLD_NEXT, "stat");
     int ret = real(path, st);
-    int err = ret < 0 ? errno : 0;
+    int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
     record("STAT", -1, ret, err, path, NULL);
-    errno = err;
+    errno = saved_errno;
     return ret;
 }
 
@@ -178,9 +178,9 @@ int lstat(const char *path, struct stat *st) {
     if (!real)
         real = dlsym(RTLD_NEXT, "lstat");
     int ret = real(path, st);
-    int err = ret < 0 ? errno : 0;
+    int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
     record("STAT", -1, ret, err, path, NULL);
-    errno = err;
+    errno = saved_errno;
     return ret;
 }
 
@@ -189,9 +189,9 @@ int unlink(const char *path) {
     if (!real)
         real = dlsym(RTLD_NEXT, "unlink");
     int ret = real(path);
-    int err = ret < 0 ? errno : 0;
+    int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
     record("UNLINK", -1, ret, err, path, NULL);
-    errno = err;
+    errno = saved_errno;
     return ret;
 }
 
@@ -200,8 +200,8 @@ int rename(const char *oldp, const char *newp) {
     if (!real)
         real = dlsym(RTLD_NEXT, "rename");
     int ret = real(oldp, newp);
-    int err = ret < 0 ? errno : 0;
+    int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
     record("RENAME", -1, ret, err, oldp, newp);
-    errno = err;
+    errno = saved_errno;
     return ret;
 }
