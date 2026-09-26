@@ -44,6 +44,25 @@ def test_run_command_captures_opened_file():
     assert any(b"libc.so" in path for path in files)
 
 
+def test_killed_process_releases_its_files(tmp_path):
+    """A process killed while holding a file open must not leave it open."""
+    target = tmp_path / "held"
+    target.write_text("x")
+    files = _trace(
+        [
+            "python3",
+            "-c",
+            f"import os; f = open({str(target)!r}); os.kill(os.getpid(), 9)",
+        ]
+    )
+
+    if not files:
+        pytest.skip("strace produced no events (ptrace likely blocked here)")
+
+    info = files[bytes(target)]
+    assert not info.is_open
+
+
 def test_stop_terminates_the_traced_tree_promptly():
     """stop() must not wait for a long-running traced child to finish.
 

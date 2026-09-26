@@ -16,7 +16,12 @@ import pyparsing as pp
 from lsoph.log import TRACE_LEVEL_NUM
 from lsoph.monitor import Monitor
 
-from .parser_defs import parse_line, split_resumed, split_unfinished
+from .parser_defs import (
+    parse_line,
+    split_exit_marker,
+    split_resumed,
+    split_unfinished,
+)
 from .syscall import PROCESS_SYSCALLS, Syscall
 
 log = logging.getLogger(__name__)
@@ -118,6 +123,21 @@ async def parse_strace_stream_pyparsing(
                 continue  # Skip this line
 
             event_timestamp = time.time()  # Use current time as timestamp
+
+            exited = split_exit_marker(line_str)
+            if exited is not None:
+                exit_pid = exited[0] if exited[0] is not None else current_pid
+                log.debug(f"PID {exit_pid}: {exited[1]}")
+                if exit_pid is not None:
+                    # Report it as the exit it was, so fds get closed.
+                    parsed_count += 1
+                    yield Syscall(
+                        pid=exit_pid,
+                        syscall="exit_group",
+                        timestamp=event_timestamp,
+                        raw_line=line_b,
+                    )
+                continue
 
             # --- Handle split syscalls (strace -f interleaving) ---
             unfinished = split_unfinished(line_str)

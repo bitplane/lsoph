@@ -118,3 +118,21 @@ def test_orphan_resumed_line_is_skipped():
     events = _run(['9999 <... read resumed> "x", 1) = 1'])
 
     assert events == []
+
+
+def test_exit_markers_become_exit_events():
+    """A killed task never calls exit_group; its +++ marker stands in."""
+    events = _run(
+        [
+            '42 openat(AT_FDCWD, "/tmp/a", O_RDONLY) = 3',
+            "42 +++ killed by SIGKILL +++",
+            "43 +++ exited with 1 +++",
+            "44 +++ killed by SIGSEGV (core dumped) +++",
+        ]
+    )
+
+    assert [(e.pid, e.syscall) for e in events[1:]] == [
+        (42, "exit_group"),
+        (43, "exit_group"),
+        (44, "exit_group"),
+    ]

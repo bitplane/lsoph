@@ -194,6 +194,21 @@ def split_resumed(line_str: str) -> tuple[int | None, str, str] | None:
     return pid, match.group(1), body[match.end() :]
 
 
+# Task exit markers: "1234 +++ killed by SIGKILL +++" (printed even under -qq)
+# and "+++ exited with 0 +++" (under -q).
+# A killed task never makes an exit_group call, so this is its only trace.
+_EXIT_MARKER_RE = re.compile(r"^\+\+\+ (?:exited with -?\d+|killed by \w+.*) \+\+\+$")
+
+
+def split_exit_marker(line_str: str) -> tuple[int | None, str] | None:
+    """If this is a '+++ exited/killed +++' line, return (pid, marker)."""
+    pid, body = split_pid(line_str)
+    body = body.strip()
+    if not _EXIT_MARKER_RE.match(body):
+        return None
+    return pid, body
+
+
 def parse_line(line_str: str) -> pp.ParseResults:
     """
     Parse a single strace line into structured data.
