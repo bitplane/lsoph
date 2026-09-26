@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -487,4 +488,47 @@ int renameat2(int olddirfd, const char *oldp, int newdirfd, const char *newp,
            absolute(newdirfd, newp, b, sizeof b));
     errno = saved_errno;
     return ret;
+}
+
+/* --- positional and vectored I/O --- */
+
+#define IO_CALL(op, name, proto, call, fd)                                     \
+    static ssize_t(*real) proto = NULL;                                        \
+    if (!real)                                                                 \
+        real = dlsym(RTLD_NEXT, name);                                         \
+    ssize_t ret = real call;                                                   \
+    int saved_errno = errno, err = ret < 0 ? saved_errno : 0;                  \
+    if (fd != lsoph_fd)                                                        \
+        record(op, fd, (long)ret, err, AT_FDCWD, NULL, NULL);                  \
+    errno = saved_errno;                                                       \
+    return ret;
+
+ssize_t pread(int fd, void *buf, size_t count, off_t offset) {
+    IO_CALL("READ", "pread", (int, void *, size_t, off_t),
+            (fd, buf, count, offset), fd)
+}
+
+ssize_t pread64(int fd, void *buf, size_t count, off64_t offset) {
+    IO_CALL("READ", "pread64", (int, void *, size_t, off64_t),
+            (fd, buf, count, offset), fd)
+}
+
+ssize_t pwrite(int fd, const void *buf, size_t count, off_t offset) {
+    IO_CALL("WRITE", "pwrite", (int, const void *, size_t, off_t),
+            (fd, buf, count, offset), fd)
+}
+
+ssize_t pwrite64(int fd, const void *buf, size_t count, off64_t offset) {
+    IO_CALL("WRITE", "pwrite64", (int, const void *, size_t, off64_t),
+            (fd, buf, count, offset), fd)
+}
+
+ssize_t readv(int fd, const struct iovec *iov, int iovcnt) {
+    IO_CALL("READ", "readv", (int, const struct iovec *, int),
+            (fd, iov, iovcnt), fd)
+}
+
+ssize_t writev(int fd, const struct iovec *iov, int iovcnt) {
+    IO_CALL("WRITE", "writev", (int, const struct iovec *, int),
+            (fd, iov, iovcnt), fd)
 }

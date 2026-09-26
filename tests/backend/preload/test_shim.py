@@ -297,3 +297,38 @@ def test_at_and_64_bit_path_calls_are_recorded(tmp_path):
         (b"RENAME", t + b"/b", t + b"/b2"),
         (b"UNLINK", t + b"/c"),
     ]
+
+
+def test_positional_and_vectored_io_is_recorded(tmp_path):
+    log_file = tmp_path / "records"
+    log_file.write_text("")
+    target = tmp_path / "t"
+    target.write_text("0123456789")
+    result = _run_under_shim(
+        tmp_path,
+        rf"""
+        #define _GNU_SOURCE
+        #include <fcntl.h>
+        #include <sys/uio.h>
+        #include <unistd.h>
+        int main(void) {{
+            char buf[4];
+            struct iovec iov = {{buf, 3}};
+            int fd = open("{target}", O_RDWR);
+            pread(fd, buf, 2, 0);
+            pwrite(fd, "ab", 2, 0);
+            readv(fd, &iov, 1);
+            writev(fd, &iov, 1);
+            return 0;
+        }}
+        """,
+        env={"LSOPH_PIPE": str(log_file)},
+    )
+    assert result.returncode == 0
+
+    records = [r.split(b"\t") for r in log_file.read_bytes().splitlines()]
+    fd = next(r[2] for r in records if r[0] == b"OPEN" and r[5] == bytes(target))
+    io = [
+        (r[0], int(r[3])) for r in records if r[0] in (b"READ", b"WRITE") and r[2] == fd
+    ]
+    assert io == [(b"READ", 2), (b"WRITE", 2), (b"READ", 3), (b"WRITE", 3)]
