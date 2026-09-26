@@ -332,3 +332,51 @@ def test_positional_and_vectored_io_is_recorded(tmp_path):
         (r[0], int(r[3])) for r in records if r[0] in (b"READ", b"WRITE") and r[2] == fd
     ]
     assert io == [(b"READ", 2), (b"WRITE", 2), (b"READ", 3), (b"WRITE", 3)]
+
+
+def test_dup_family_tracks_fds_through_the_monitor(tmp_path):
+    """dup'd fds keep the file open; dup2 over an open fd closes its file."""
+    import asyncio
+
+    from lsoph.monitor import Monitor
+
+    log_file = tmp_path / "records"
+    log_file.write_text("")
+    a, b = tmp_path / "a", tmp_path / "b"
+    a.write_text("")
+    b.write_text("")
+    result = _run_under_shim(
+        tmp_path,
+        rf"""
+        #define _GNU_SOURCE
+        #include <fcntl.h>
+        #include <unistd.h>
+        int main(void) {{
+            int fa = open("{a}", O_RDONLY);
+            int fa2 = dup(fa);
+            int fb = open("{b}", O_RDONLY);
+            dup2(fa, fb);  /* b is closed, fb now refers to a */
+            close(fa);
+            close(fa2);
+            return 0;  /* fb is left open */
+        }}
+        """,
+        env={"LSOPH_PIPE": str(log_file)},
+    )
+    assert result.returncode == 0
+
+    monitor = Monitor(identifier="t")
+
+    async def feed():
+        async def lines():
+            for line in log_file.read_bytes().splitlines():
+                yield line
+
+        await Preload(monitor).process_lines(lines(), None)
+
+    asyncio.run(feed())
+
+    assert monitor.files[bytes(b)].status == "closed"
+    info_a = monitor.files[bytes(a)]
+    assert info_a.is_open  # still held via the dup2'd fd
+    assert sum(len(fds) for fds in info_a.open_by_pids.values()) == 1

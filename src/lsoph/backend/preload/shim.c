@@ -532,3 +532,56 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt) {
     IO_CALL("WRITE", "writev", (int, const struct iovec *, int),
             (fd, iov, iovcnt), fd)
 }
+
+/* --- fd duplication: an OPEN of the new fd under the file's path, after a
+ * CLOSE if dup2/dup3 replaced an fd that was open. --- */
+
+static void record_dup(int newfd, int replaced) {
+    char link[64], path[PATH_MAX];
+    if (replaced)
+        record("CLOSE", newfd, 0, 0, AT_FDCWD, NULL, NULL);
+    snprintf(link, sizeof link, "/proc/self/fd/%d", newfd);
+    ssize_t n = readlink(link, path, sizeof path - 1);
+    if (n <= 0 || path[0] != '/')
+        return; /* a pipe, socket, ...: not a file */
+    path[n] = 0;
+    record("OPEN", newfd, newfd, 0, AT_FDCWD, path, NULL);
+}
+
+int dup(int oldfd) {
+    static int (*real)(int) = NULL;
+    if (!real)
+        real = dlsym(RTLD_NEXT, "dup");
+    int ret = real(oldfd);
+    int saved_errno = errno;
+    if (ret >= 0)
+        record_dup(ret, 0);
+    errno = saved_errno;
+    return ret;
+}
+
+int dup2(int oldfd, int newfd) {
+    static int (*real)(int, int) = NULL;
+    if (!real)
+        real = dlsym(RTLD_NEXT, "dup2");
+    int was_open = oldfd != newfd && fcntl(newfd, F_GETFD) != -1;
+    int ret = real(oldfd, newfd);
+    int saved_errno = errno;
+    if (ret >= 0 && oldfd != newfd)
+        record_dup(ret, was_open);
+    errno = saved_errno;
+    return ret;
+}
+
+int dup3(int oldfd, int newfd, int flags) {
+    static int (*real)(int, int, int) = NULL;
+    if (!real)
+        real = dlsym(RTLD_NEXT, "dup3");
+    int was_open = fcntl(newfd, F_GETFD) != -1;
+    int ret = real(oldfd, newfd, flags);
+    int saved_errno = errno;
+    if (ret >= 0)
+        record_dup(ret, was_open);
+    errno = saved_errno;
+    return ret;
+}
