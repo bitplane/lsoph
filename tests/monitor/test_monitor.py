@@ -40,3 +40,18 @@ def test_rename_path_to_itself_preserves_file_and_fd_state():
     assert info.last_event_type == "RENAME"
     assert info.open_by_pids == {100: {3}}
     assert monitor.pid_fd_map == {100: {3: b"/a"}}
+
+
+def test_file_reopened_on_a_std_fd_is_tracked_by_that_fd():
+    """A real file opened onto fd 0 takes over from <STDIN> until closed."""
+    monitor = Monitor(identifier="t")
+    monitor.open(100, b"/a", 0, True, 1.0)
+
+    monitor.read(100, 0, None, True, 2.0, bytes=5)
+    monitor.close(100, 0, True, 3.0)
+
+    info = monitor.files[b"/a"]
+    assert info.bytes_read == 5
+    assert info.status == "closed"
+    assert info.open_by_pids == {}
+    assert monitor.get_path(100, 0) == b"<STDIN>"

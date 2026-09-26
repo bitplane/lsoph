@@ -511,7 +511,9 @@ class Monitor(Versioned):
     @waits
     def get_path(self, pid: int, fd: int) -> bytes:
         """Retrieves the path for a PID/FD."""
-        path = STD_PATHS.get(fd) or self.pid_fd_map.get(pid, {}).get(fd)
+        # A tracked open wins over the std-stream names: daemons commonly
+        # close 0-2 and reopen them onto real files.
+        path = self.pid_fd_map.get(pid, {}).get(fd) or STD_PATHS.get(fd)
 
         if path is not None:
             return path
