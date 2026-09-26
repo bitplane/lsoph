@@ -207,3 +207,43 @@ def test_relative_paths_are_recorded_absolute_as_of_the_call(tmp_path):
         bytes(tmp_path / "sub" / "x"),
         bytes(tmp_path / "y"),
     ]
+
+
+def _opens_and_closes(log_file):
+    records = [r.split(b"\t") for r in log_file.read_bytes().splitlines()]
+    return [(r[0], r[2], r[5]) for r in records if r[0] in (b"OPEN", b"CLOSE")]
+
+
+def test_stdio_and_fortified_opens_are_recorded(tmp_path):
+    """fopen/fclose and _FORTIFY_SOURCE's __open_2 bypass the plain wrappers."""
+    log_file = tmp_path / "records"
+    log_file.write_text("")
+    target = tmp_path / "t"
+    target.write_text("x")
+    result = _run_under_shim(
+        tmp_path,
+        rf"""
+        #include <fcntl.h>
+        #include <stdio.h>
+        #include <unistd.h>
+        int __open_2(const char *, int);
+        int main(void) {{
+            FILE *f = fopen("{target}", "r");
+            int fd = fileno(f);
+            fclose(f);
+            close(__open_2("{target}", O_RDONLY));
+            return fd < 0;
+        }}
+        """,
+        env={"LSOPH_PIPE": str(log_file)},
+    )
+    assert result.returncode == 0
+
+    events = _opens_and_closes(log_file)
+    opens = [
+        i for i, e in enumerate(events) if e[:1] + e[2:] == (b"OPEN", bytes(target))
+    ]
+    assert len(opens) == 2  # fopen, __open_2
+    for i in opens:
+        fd = events[i][1]
+        assert (b"CLOSE", fd) in [e[:2] for e in events[i + 1 :]]

@@ -235,6 +235,79 @@ int creat(const char *path, mode_t mode) {
     return ret;
 }
 
+/* _FORTIFY_SOURCE builds call these checked variants (no mode argument). */
+#define OPEN_2(name, ...)                                                      \
+    static int (*real)(__VA_ARGS__) = NULL;                                    \
+    if (!real)                                                                 \
+        real = dlsym(RTLD_NEXT, name)
+
+int __open_2(const char *path, int flags) {
+    OPEN_2("__open_2", const char *, int);
+    int ret = real(path, flags);
+    int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
+    record("OPEN", ret, ret, err, AT_FDCWD, path, NULL);
+    errno = saved_errno;
+    return ret;
+}
+
+int __open64_2(const char *path, int flags) {
+    OPEN_2("__open64_2", const char *, int);
+    int ret = real(path, flags);
+    int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
+    record("OPEN", ret, ret, err, AT_FDCWD, path, NULL);
+    errno = saved_errno;
+    return ret;
+}
+
+int __openat_2(int dirfd, const char *path, int flags) {
+    OPEN_2("__openat_2", int, const char *, int);
+    int ret = real(dirfd, path, flags);
+    int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
+    record("OPEN", ret, ret, err, dirfd, path, NULL);
+    errno = saved_errno;
+    return ret;
+}
+
+int __openat64_2(int dirfd, const char *path, int flags) {
+    OPEN_2("__openat64_2", int, const char *, int);
+    int ret = real(dirfd, path, flags);
+    int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
+    record("OPEN", ret, ret, err, dirfd, path, NULL);
+    errno = saved_errno;
+    return ret;
+}
+
+/* --- stdio: glibc opens and closes FILEs through internal, uninterposable
+ * calls, so fopen/fclose are wrapped themselves. --- */
+
+#define FOPEN_BODY(name)                                                       \
+    static FILE *(*real)(const char *, const char *) = NULL;                   \
+    if (!real)                                                                 \
+        real = dlsym(RTLD_NEXT, name);                                         \
+    FILE *ret = real(path, mode);                                              \
+    int saved_errno = errno;                                                   \
+    int fd = ret ? fileno(ret) : -1;                                           \
+    record("OPEN", fd, fd, ret ? 0 : saved_errno, AT_FDCWD, path, NULL);       \
+    errno = saved_errno;                                                       \
+    return ret;
+
+FILE *fopen(const char *path, const char *mode) { FOPEN_BODY("fopen") }
+
+FILE *fopen64(const char *path, const char *mode) { FOPEN_BODY("fopen64") }
+
+int fclose(FILE *stream) {
+    static int (*real)(FILE *) = NULL;
+    if (!real)
+        real = dlsym(RTLD_NEXT, "fclose");
+    int fd = fileno(stream);
+    int ret = real(stream);
+    int saved_errno = errno, err = ret != 0 ? saved_errno : 0;
+    if (fd >= 0)
+        record("CLOSE", fd, ret, err, AT_FDCWD, NULL, NULL);
+    errno = saved_errno;
+    return ret;
+}
+
 /* --- fd-based calls (skip our own pipe fd) --- */
 
 int close(int fd) {
