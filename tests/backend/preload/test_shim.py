@@ -247,3 +247,53 @@ def test_stdio_and_fortified_opens_are_recorded(tmp_path):
     for i in opens:
         fd = events[i][1]
         assert (b"CLOSE", fd) in [e[:2] for e in events[i + 1 :]]
+
+
+def test_at_and_64_bit_path_calls_are_recorded(tmp_path):
+    """glibc >= 2.33 programs call stat64/fstatat/statx/unlinkat/renameat
+    directly; each must produce a record with the resolved path."""
+    from lsoph.backend.preload.backend import _unescape
+
+    log_file = tmp_path / "records"
+    log_file.write_text("")
+    for name in ("a", "b", "c"):
+        (tmp_path / name).write_text("")
+    result = _run_under_shim(
+        tmp_path,
+        rf"""
+        #define _GNU_SOURCE
+        #include <fcntl.h>
+        #include <stdio.h>
+        #include <sys/stat.h>
+        #include <unistd.h>
+        int main(void) {{
+            struct stat st;
+            struct stat64 st64;
+            struct statx stx;
+            int dir = open("{tmp_path}", O_RDONLY | O_DIRECTORY);
+            stat64("{tmp_path}/a", &st64);
+            fstatat(dir, "a", &st, 0);
+            statx(dir, "b", 0, STATX_BASIC_STATS, &stx);
+            renameat(dir, "b", dir, "b2");
+            unlinkat(dir, "c", 0);
+            return 0;
+        }}
+        """,
+        env={"LSOPH_PIPE": str(log_file)},
+    )
+    assert result.returncode == 0
+
+    records = [r.split(b"\t") for r in log_file.read_bytes().splitlines()]
+    seen = [
+        (r[0], *(_unescape(p) for p in r[5:]))
+        for r in records
+        if r[0] in (b"STAT", b"RENAME", b"UNLINK") and r[5].startswith(bytes(tmp_path))
+    ]
+    t = bytes(tmp_path)
+    assert seen == [
+        (b"STAT", t + b"/a"),
+        (b"STAT", t + b"/a"),
+        (b"STAT", t + b"/b"),
+        (b"RENAME", t + b"/b", t + b"/b2"),
+        (b"UNLINK", t + b"/c"),
+    ]

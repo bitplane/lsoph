@@ -403,3 +403,88 @@ int rename(const char *oldp, const char *newp) {
     errno = saved_errno;
     return ret;
 }
+
+/* --- *at and 64-bit variants (what glibc >= 2.33 programs call directly) */
+
+#define PATH_CALL(op, name, proto, call, dirfd, path)                          \
+    static int(*real) proto = NULL;                                            \
+    if (!real)                                                                 \
+        real = dlsym(RTLD_NEXT, name);                                         \
+    int ret = real call;                                                       \
+    int saved_errno = errno, err = ret < 0 ? saved_errno : 0;                  \
+    record(op, -1, ret, err, dirfd, path, NULL);                               \
+    errno = saved_errno;                                                       \
+    return ret;
+
+int stat64(const char *path, struct stat64 *st) {
+    PATH_CALL("STAT", "stat64", (const char *, struct stat64 *), (path, st),
+              AT_FDCWD, path)
+}
+
+int lstat64(const char *path, struct stat64 *st) {
+    PATH_CALL("STAT", "lstat64", (const char *, struct stat64 *), (path, st),
+              AT_FDCWD, path)
+}
+
+int fstatat(int dirfd, const char *path, struct stat *st, int flags) {
+    PATH_CALL("STAT", "fstatat", (int, const char *, struct stat *, int),
+              (dirfd, path, st, flags), dirfd, path)
+}
+
+int fstatat64(int dirfd, const char *path, struct stat64 *st, int flags) {
+    PATH_CALL("STAT", "fstatat64", (int, const char *, struct stat64 *, int),
+              (dirfd, path, st, flags), dirfd, path)
+}
+
+#ifdef STATX_BASIC_STATS
+int statx(int dirfd, const char *path, int flags, unsigned int mask,
+          struct statx *stx) {
+    PATH_CALL("STAT", "statx",
+              (int, const char *, int, unsigned int, struct statx *),
+              (dirfd, path, flags, mask, stx), dirfd, path)
+}
+#endif
+
+int faccessat(int dirfd, const char *path, int mode, int flags) {
+    PATH_CALL("STAT", "faccessat", (int, const char *, int, int),
+              (dirfd, path, mode, flags), dirfd, path)
+}
+
+int unlinkat(int dirfd, const char *path, int flags) {
+    PATH_CALL("UNLINK", "unlinkat", (int, const char *, int),
+              (dirfd, path, flags), dirfd, path)
+}
+
+int rmdir(const char *path) {
+    PATH_CALL("UNLINK", "rmdir", (const char *), (path), AT_FDCWD, path)
+}
+
+int renameat(int olddirfd, const char *oldp, int newdirfd, const char *newp) {
+    static int (*real)(int, const char *, int, const char *) = NULL;
+    if (!real)
+        real = dlsym(RTLD_NEXT, "renameat");
+    int ret = real(olddirfd, oldp, newdirfd, newp);
+    int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
+    char a[PATH_MAX], b[PATH_MAX];
+    record("RENAME", -1, ret, err, AT_FDCWD,
+           absolute(olddirfd, oldp, a, sizeof a),
+           absolute(newdirfd, newp, b, sizeof b));
+    errno = saved_errno;
+    return ret;
+}
+
+int renameat2(int olddirfd, const char *oldp, int newdirfd, const char *newp,
+              unsigned int flags) {
+    static int (*real)(int, const char *, int, const char *, unsigned int) =
+        NULL;
+    if (!real)
+        real = dlsym(RTLD_NEXT, "renameat2");
+    int ret = real(olddirfd, oldp, newdirfd, newp, flags);
+    int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
+    char a[PATH_MAX], b[PATH_MAX];
+    record("RENAME", -1, ret, err, AT_FDCWD,
+           absolute(olddirfd, oldp, a, sizeof a),
+           absolute(newdirfd, newp, b, sizeof b));
+    errno = saved_errno;
+    return ret;
+}
