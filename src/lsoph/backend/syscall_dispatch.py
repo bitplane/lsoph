@@ -51,6 +51,10 @@ async def process_syscall_event(
             cwd_map[child_pid] = child_cwd
         else:
             log.warning(f"Could not determine CWD for new child PID {child_pid}.")
+        # A forked child gets a copy of the fd table; one cloned with
+        # CLONE_FILES (a thread) shares it instead.
+        if b"CLONE_FILES" not in event.raw_line:
+            monitor.inherit_fds(pid, child_pid)
         return
 
     # 2. Ensure CWD is known for other syscalls (needed to resolve relative paths).

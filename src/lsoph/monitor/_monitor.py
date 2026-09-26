@@ -484,6 +484,16 @@ class Monitor(Versioned):
         del self.files[old_path]
 
     @changes
+    def inherit_fds(self, parent_pid: int, child_pid: int):
+        """A forked child starts with a copy of its parent's fd table: the same
+        files, open under the child's pid too (no new open events)."""
+        for fd, path in self.pid_fd_map.get(parent_pid, {}).items():
+            self._update_pid_fd_map(child_pid, fd, path)
+            info = self.files.get(path)
+            if info:
+                info.open_by_pids.setdefault(child_pid, set()).add(fd)
+
+    @changes
     def process_exit(self, pid: int, timestamp: float):
         """Handles cleanup when a process exits."""
         self._unresolvable_fds = {k for k in self._unresolvable_fds if k[0] != pid}
