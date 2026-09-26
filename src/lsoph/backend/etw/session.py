@@ -246,6 +246,38 @@ def _logfile_fields(callback_type) -> list[tuple]:
     ]
 
 
+def _advapi32():
+    """A private advapi32 handle with prototypes declared, so 64-bit handles
+    and keyword masks are marshalled as such rather than as C ints."""
+    lib = ctypes.WinDLL("advapi32")
+    handle, ulong, props = c_uint64, c_uint32, POINTER(EVENT_TRACE_PROPERTIES)
+    prototypes = {
+        "StartTraceW": (ulong, [POINTER(handle), c_wchar_p, props]),
+        "ControlTraceW": (ulong, [handle, c_wchar_p, props, ulong]),
+        "EnableTraceEx2": (
+            ulong,
+            [
+                handle,
+                POINTER(GUID),
+                ulong,
+                c_ubyte,
+                c_uint64,
+                c_uint64,
+                ulong,
+                c_void_p,
+            ],
+        ),
+        "OpenTraceW": (handle, [c_void_p]),
+        "ProcessTrace": (ulong, [POINTER(handle), ulong, c_void_p, c_void_p]),
+        "CloseTrace": (ulong, [handle]),
+    }
+    for name, (restype, argtypes) in prototypes.items():
+        func = getattr(lib, name)
+        func.restype = restype
+        func.argtypes = argtypes
+    return lib
+
+
 def _filetime_to_unix(filetime: int) -> float:
     return (filetime - _FILETIME_EPOCH) / 1e7
 
@@ -262,7 +294,7 @@ class KernelFileSession:
         self.name = name
         self.on_event = on_event
         self._session_handle = c_uint64(0)
-        self._advapi32 = ctypes.windll.advapi32  # win32 only, by construction
+        self._advapi32 = _advapi32()  # win32 only, by construction
 
     def run(self) -> None:
         self._start()
@@ -329,7 +361,6 @@ class KernelFileSession:
         )
         logfile.EventRecordCallback = self._callback
 
-        self._advapi32.OpenTraceW.restype = c_uint64
         trace = self._advapi32.OpenTraceW(ctypes.byref(logfile))
         if trace == INVALID_PROCESSTRACE_HANDLE:
             raise OSError("OpenTraceW failed")
