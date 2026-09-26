@@ -93,3 +93,23 @@ def test_unwatched_pid_is_filtered_out():
     )
 
     assert len(monitor) == 0
+
+
+def test_unknown_file_object_never_falls_back_to_a_handle_scan(monkeypatch):
+    """Events on FILE_OBJECTs opened before tracing are skipped without the
+    Monitor's psutil fallback (slow on Windows, and it can't match anyway)."""
+    import lsoph.monitor._monitor as monitor_module
+
+    def no_scan(pid, fd):
+        raise AssertionError("get_fd_path must not be called")
+
+    monkeypatch.setattr(monitor_module, "get_fd_path", no_scan)
+    monitor = Monitor(identifier="t")
+
+    for event_id in (READ, WRITE, CLOSE):
+        process_file_event(FileEvent(event_id, 100, 1.0, FOBJ, size=1), monitor, {100})
+    process_file_event(
+        FileEvent(RENAME_PATH, 100, 1.0, FOBJ, path=rb"C:\new"), monitor, {100}
+    )
+
+    assert set(monitor.files) == {rb"C:\new"}

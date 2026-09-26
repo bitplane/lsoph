@@ -38,23 +38,31 @@ def process_file_event(
         monitor.open(pid, event.path, fobj, True, ts, **details)
         return
 
-    try:
-        if event.event_id == READ:
-            monitor.read(pid, fobj, None, True, ts, bytes=event.size, **details)
-        elif event.event_id == WRITE:
-            monitor.write(pid, fobj, None, True, ts, bytes=event.size, **details)
-        elif event.event_id == CLOSE:
-            monitor.close(pid, fobj, True, ts, **details)
-        elif event.event_id == RENAME_PATH:
-            # FilePath is the new name; the old one is whatever the FILE_OBJECT
-            # was opened as. Without that mapping, record the new path as
-            # accessed rather than guessing a rename pair.
-            old = monitor.get_path(pid, fobj)
-            monitor.rename(pid, old, event.path, True, ts, **details)
-        elif event.event_id == DELETE_PATH:
-            monitor.delete(pid, event.path, True, ts, **details)
-    except KeyError:
+    if event.event_id == DELETE_PATH:
+        monitor.delete(pid, event.path, True, ts, **details)
+        return
+
+    # Everything else resolves through the FILE_OBJECT. One we never saw
+    # created (opened before the session started) is skipped here, rather
+    # than letting Monitor.get_path fall back to a psutil handle scan on the
+    # event loop -- which can't match a FILE_OBJECT anyway.
+    if fobj not in monitor.pid_fd_map.get(pid, {}):
         if event.event_id == RENAME_PATH:
+            # No old name to pair with: record the new path as accessed.
             monitor.stat(pid, event.path, True, ts, **details)
         else:
             log.debug(f"PID {pid}: unknown FILE_OBJECT {fobj:#x}, event skipped")
+        return
+
+    if event.event_id == READ:
+        monitor.read(pid, fobj, None, True, ts, bytes=event.size, **details)
+    elif event.event_id == WRITE:
+        monitor.write(pid, fobj, None, True, ts, bytes=event.size, **details)
+    elif event.event_id == CLOSE:
+        monitor.close(pid, fobj, True, ts, **details)
+    elif event.event_id == RENAME_PATH:
+        # FilePath is the new name; the old one is what the FILE_OBJECT was
+        # opened as.
+        monitor.rename(
+            pid, monitor.get_path(pid, fobj), event.path, True, ts, **details
+        )
