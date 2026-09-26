@@ -3,7 +3,6 @@
 
 import logging
 import os
-from collections import deque
 from collections.abc import Coroutine
 from typing import Any, Optional
 
@@ -14,6 +13,7 @@ from textual.widgets import DataTable, Footer, Header, Static
 from textual.worker import Worker, WorkerState
 
 from lsoph.backend.base import Backend
+from lsoph.log import LogBuffer
 from lsoph.monitor import FileInfo, Monitor
 from lsoph.util.short_path import short_path
 
@@ -64,7 +64,7 @@ class LsophApp(App[None]):
     def __init__(
         self,
         monitor: Monitor,
-        log_queue: deque,
+        log_queue: LogBuffer,
         backend_instance: Backend,
         backend_coroutine: BackendCoroutine,
     ):

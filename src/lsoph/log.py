@@ -6,6 +6,8 @@ import sys
 from collections import deque
 from typing import Optional
 
+from rich.markup import escape
+
 # --- Define TRACE level ---
 TRACE_LEVEL_NUM = 5
 logging.addLevelName(TRACE_LEVEL_NUM, "TRACE")
@@ -20,8 +22,28 @@ def trace(self, message, *args, **kws):
 logging.Logger.trace = trace
 
 
-# Global deque for log messages to be displayed in the TUI
-LOG_QUEUE = deque(maxlen=1000)  # Max 1000 lines in memory
+class LogBuffer(deque):
+    """A bounded deque that also counts every line ever appended, so each
+    reader can fetch only what's new since it last looked, without draining
+    the buffer for other readers (or for the next time it's opened)."""
+
+    def __init__(self, maxlen: int):
+        super().__init__(maxlen=maxlen)
+        self.total = 0
+
+    def append(self, item):
+        super().append(item)
+        self.total += 1
+
+    def since(self, seen: int) -> tuple[list, int]:
+        """Lines appended after the reader had seen `seen`, and the new total."""
+        total = self.total
+        new = total - seen
+        return (list(self)[-new:] if new > 0 else []), total
+
+
+# Global buffer for log messages to be displayed in the TUI
+LOG_QUEUE = LogBuffer(maxlen=1000)  # Max 1000 lines in memory
 
 
 class TextualLogHandler(logging.Handler):
@@ -39,8 +61,9 @@ class TextualLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord):
         """Formats the log record and adds it to the queue with Rich markup."""
         try:
-            # Get the plain message and timestamp
-            plain_msg = f"{record.name}: {record.getMessage()}"
+            # Get the plain message and timestamp. Messages carry paths and
+            # exception text, so escape anything that looks like markup.
+            plain_msg = escape(f"{record.name}: {record.getMessage()}")
             timestamp = self.formatter.formatTime(record, self.formatter.datefmt)
 
             # Apply Rich markup based on log level
@@ -61,7 +84,7 @@ class TextualLogHandler(logging.Handler):
                 markup = f"{timestamp} {plain_msg}"
 
             if record.exc_info:
-                exc_text = self.formatter.formatException(record.exc_info)
+                exc_text = escape(self.formatter.formatException(record.exc_info))
                 markup += f"\n[red]{exc_text}[/red]"
 
             # Append the marked-up string to the shared queue

@@ -8,9 +8,9 @@ These guard three bugs found in the original code:
 
 import asyncio
 import time
-from collections import deque
 
 from lsoph.backend.base import Backend
+from lsoph.log import LogBuffer
 from lsoph.monitor import Monitor
 from lsoph.ui.app import LsophApp
 from lsoph.ui.detail_screen import DetailScreen
@@ -39,7 +39,7 @@ def _drive(scenario):
         )
         app = LsophApp(
             monitor=monitor,
-            log_queue=deque(maxlen=10),
+            log_queue=LogBuffer(maxlen=10),
             backend_instance=StubBackend(monitor),
             backend_coroutine=StubBackend(monitor).attach([999]),
         )

@@ -2,14 +2,14 @@
 """Full-screen display for application logs."""
 
 import logging
-import sys
-from collections import deque
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
 from textual.timer import Timer
 from textual.widgets import Footer, Header, RichLog
+
+from lsoph.log import LogBuffer
 
 log = logging.getLogger("lsoph.ui.log")
 
@@ -28,8 +28,9 @@ class LogScreen(Screen):
         Binding("end", "scroll_end()", "Scroll End", show=False),
     ]
 
-    def __init__(self, log_queue: deque):
+    def __init__(self, log_queue: LogBuffer):
         self.log_queue = log_queue
+        self._seen = 0  # log_queue.total at our last read
         self._timer: Timer | None = None
         super().__init__()
 
@@ -48,33 +49,10 @@ class LogScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
-        """Called when the screen is mounted. Populates with existing logs and starts timer."""
-        try:
-            log_widget = self.query_one(RichLog)
-            log.debug(
-                f"LogScreen mounted. Processing {len(self.log_queue)} existing log messages."
-            )
-
-            # Write existing logs from the queue
-            existing_logs = list(self.log_queue)  # Copy queue items
-            if existing_logs:
-                for line in existing_logs:
-                    log_widget.write(line)
-                log_widget.scroll_end(
-                    animate=False
-                )  # Scroll to bottom after initial load
-
-            # Start timer to check for new logs periodically
-            self._timer = self.set_interval(
-                1 / 10, self._check_log_queue
-            )  # Check 10 times/sec
-        except Exception as e:
-            log.exception(f"Error during LogScreen mount: {e}")
-            try:
-                # Try writing error to the log widget itself
-                log_widget.write(f"[bold red]Error mounting log screen: {e}[/]")
-            except Exception:
-                pass  # Ignore errors during error reporting
+        """Called when the screen is mounted. Shows buffered logs and starts timer."""
+        self._check_log_queue()
+        self.query_one(RichLog).scroll_end(animate=False)
+        self._timer = self.set_interval(1 / 10, self._check_log_queue)
 
     def on_unmount(self) -> None:
         """Called when the screen is unmounted. Stops the timer."""
@@ -87,29 +65,11 @@ class LogScreen(Screen):
         self._timer = None
 
     def _check_log_queue(self) -> None:
-        """Periodically check the log queue and write new lines to RichLog."""
-        try:
-            log_widget = self.query_one(RichLog)
-            lines_to_write = []
-            # Efficiently drain the queue
-            while True:
-                try:
-                    record = self.log_queue.popleft()
-                    lines_to_write.append(record)
-                except IndexError:
-                    break  # Queue is empty
-
-            # Write collected lines in one go if any exist
-            if lines_to_write:
-                for line in lines_to_write:
-                    log_widget.write(line)
-                # Optionally scroll to end only if new lines were added and auto_scroll is desired
-                # log_widget.scroll_end(animate=False)
-        except Exception as e:
-            # Log error to stderr as the log screen itself might be broken
-            print(f"ERROR: Error processing log queue: {e}", file=sys.stderr)
-            # Optionally stop the timer to prevent repeated errors
-            # if self._timer: self._timer.stop()
+        """Write lines logged since we last looked to the RichLog."""
+        lines, self._seen = self.log_queue.since(self._seen)
+        log_widget = self.query_one(RichLog)
+        for line in lines:
+            log_widget.write(line)
 
     def action_clear_log(self) -> None:
         """Action to clear the log display."""
