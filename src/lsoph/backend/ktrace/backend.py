@@ -63,11 +63,9 @@ class Ktrace(TracerBackend):
         kdump = shutil.which("kdump")
         if not kdump or not self._tracefile:
             return None
-        argv = [kdump, "-l", "-f", self._tracefile]
-        # kdump -p filters a single PID; only useful for single-PID attach.
-        if attach_pids and len(attach_pids) == 1:
-            argv += ["-p", str(attach_pids[0])]
-        return argv
+        # No kdump -p: the trace file only holds the traced processes and the
+        # children they inherited tracing into (-i), and we want those too.
+        return [kdump, "-l", "-f", self._tracefile]
 
     async def _run(self, attach_pids, run_command):
         fd, self._tracefile = tempfile.mkstemp(prefix="lsoph_ktrace_", suffix=".out")
@@ -113,11 +111,12 @@ class Ktrace(TracerBackend):
         return enabled
 
     async def _disable_attach(self, pids: list[int]):
-        """Clear ktrace on the attached PIDs."""
+        """Clear ktrace on the attached PIDs and the children they forked while
+        traced (-d), which inherited tracing via -i."""
         ktrace = shutil.which("ktrace")
         for pid in pids:
             if pid > 0:
-                await self._run_to_completion([ktrace, "-c", "-p", str(pid)])
+                await self._run_to_completion([ktrace, "-c", "-d", "-p", str(pid)])
 
     async def _spawn_run(self, command: list[str]) -> bool:
         """Run the command under ktrace; it stays alive as the traced process."""
