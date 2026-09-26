@@ -102,10 +102,11 @@ class Etw(Backend):
                     break
                 if time.monotonic() >= next_child_check:
                     with watched_lock:
-                        watched_snapshot = list(watched)
-                    descendants = set()
-                    for pid in watched_snapshot:
-                        descendants.update(get_descendants(pid))
+                        watched_snapshot = set(watched)
+                    # A process-table scan: off the event loop.
+                    descendants = await asyncio.to_thread(
+                        get_descendants, watched_snapshot
+                    )
                     with watched_lock:
                         watched.update(descendants)
                     next_child_check = time.monotonic() + CHILD_CHECK_INTERVAL

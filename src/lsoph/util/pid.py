@@ -2,29 +2,35 @@
 import logging
 import os
 import sys
+from collections.abc import Iterable
 
 import psutil
 
 log = logging.getLogger(__name__)
 
 
-def get_descendants(parent_pid: int) -> list[int]:
+def get_descendants(pids: Iterable[int]) -> set[int]:
     """
-    Retrieves a list of all descendant process IDs (PIDs) for a given parent PID.
+    All descendant PIDs of any of `pids` (excluding `pids` themselves).
+
+    One pass over the process table builds a parent -> children map, where
+    asking psutil per PID would rescan every process once per PID.
     """
-    descendant_pids: list[int] = []
-    try:
-        parent = psutil.Process(parent_pid)
-        descendant_procs = parent.children(recursive=True)
-        descendant_pids = [proc.pid for proc in descendant_procs]
-        log.debug(f"Found descendants for PID {parent_pid}: {descendant_pids}")
-    except psutil.NoSuchProcess:
-        log.warning(f"Process with PID {parent_pid} not found.")
-    except psutil.AccessDenied:
-        log.warning(f"Access denied getting descendants of PID {parent_pid}.")
-    except Exception as e:
-        log.error(f"Unexpected error getting descendants for PID {parent_pid}: {e}")
-    return descendant_pids
+    children: dict[int, list[int]] = {}
+    for proc in psutil.process_iter(["pid", "ppid"]):
+        ppid = proc.info.get("ppid")
+        if ppid is not None:
+            children.setdefault(ppid, []).append(proc.info["pid"])
+
+    roots = set(pids)
+    found: set[int] = set()
+    pending = list(roots)
+    while pending:
+        for child in children.get(pending.pop(), ()):
+            if child not in found and child not in roots:
+                found.add(child)
+                pending.append(child)
+    return found
 
 
 def get_cwd(pid: int) -> bytes | None:

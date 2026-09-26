@@ -85,7 +85,7 @@ class PollingBackend(Backend):
                 poll_count += 1
 
                 if poll_count % self.child_check_interval == 0:
-                    monitored |= self._discover_descendants(monitored)
+                    monitored |= await self._discover_descendants(monitored)
 
                 if not monitored:
                     log.info("No monitored PIDs remaining. Exiting poll loop.")
@@ -116,14 +116,12 @@ class PollingBackend(Backend):
         finally:
             log.info(f"Exiting {type(self).__name__} polling loop.")
 
-    def _discover_descendants(self, monitored: set[int]) -> set[int]:
+    async def _discover_descendants(self, monitored: set[int]) -> set[int]:
         """Return descendant PIDs of the monitored set that aren't tracked yet."""
-        found: set[int] = set()
-        for pid in list(monitored):
-            for child in get_descendants(pid):
-                if child > 0 and child not in monitored and child not in found:
-                    log.info(f"Found new descendant process: {child} (ancestor: {pid})")
-                    found.add(child)
+        # A process-table scan: off the event loop.
+        found = await asyncio.to_thread(get_descendants, set(monitored))
+        for child in sorted(found):
+            log.info(f"Found new descendant process: {child}")
         return found
 
     def _reconcile(

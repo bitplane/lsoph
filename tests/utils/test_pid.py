@@ -2,10 +2,13 @@
 
 import os
 import socket
+import subprocess
+import time
 
+import psutil
 import pytest
 
-from lsoph.util.pid import get_fd_path
+from lsoph.util.pid import get_descendants, get_fd_path
 
 
 def test_get_fd_path_raises_keyerror_for_nonexistent_pid():
@@ -27,3 +30,22 @@ def test_get_fd_path_resolves_files_and_rejects_non_files(tmp_path):
         assert get_fd_path(os.getpid(), f.fileno()) == bytes(target)
         with pytest.raises(KeyError):
             get_fd_path(os.getpid(), s.fileno())
+
+
+def test_get_descendants_walks_the_whole_tree():
+    shell = subprocess.Popen(["sh", "-c", "sleep 5 & sleep 5 & wait"])
+    try:
+        time.sleep(0.3)
+        grandchildren = {c.pid for c in psutil.Process(shell.pid).children()}
+        assert len(grandchildren) == 2
+
+        found = get_descendants([os.getpid()])
+
+        assert {shell.pid} | grandchildren <= found
+        assert os.getpid() not in found
+        assert get_descendants([shell.pid]) == grandchildren
+    finally:
+        shell.kill()
+        for pid in grandchildren:
+            psutil.Process(pid).kill()
+        shell.wait()
