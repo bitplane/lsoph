@@ -57,7 +57,12 @@ _NAME_ALIASES = {
 
 def _parse_int(token: str) -> int:
     token = token.strip()
-    return int(token, 16) if token.lower().startswith("0x") else int(token)
+    if not token.lower().startswith("0x"):
+        return int(token)
+    # dtruss prints args as 0x%X of a uint64, so negatives (e.g. macOS
+    # AT_FDCWD, -2) arrive as 0xFFFFFFFFFFFFFFFE: sign-extend them back.
+    value = int(token, 16)
+    return value - (1 << 64) if value >= 1 << 63 else value
 
 
 def _split_args(s: str) -> list:

@@ -108,9 +108,10 @@ def parse_dirfd(dirfd_arg: Optional[str | int]) -> Optional[int]:
     if dirfd_arg is None:
         return None
 
-    # If it's already an integer, return it directly
+    # Negative ints are never real fds: they're AT_FDCWD in numeric form
+    # (-100 on Linux, -2 on macOS as reported by dtruss).
     if isinstance(dirfd_arg, int):
-        return dirfd_arg
+        return dirfd_arg if dirfd_arg >= 0 else None
 
     # Check for special strings like AT_FDCWD
     if DIRFD_RE.match(dirfd_arg):

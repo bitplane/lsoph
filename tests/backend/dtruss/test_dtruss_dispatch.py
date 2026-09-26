@@ -52,3 +52,15 @@ def test_stat_records_accessed_file():
     monitor = _run([r' 100/0x1:  stat64("/tmp/x\0", 0x0, 0x0)		 = 0 0'])
 
     assert monitor.files[b"/tmp/x"].status == "accessed"
+
+
+def test_openat_with_hex_at_fdcwd_resolves_against_cwd(tmp_path, monkeypatch):
+    """dtruss prints macOS AT_FDCWD (-2) as 0xFFFFFFFFFFFFFFFE; it means cwd."""
+    monkeypatch.chdir(tmp_path)
+    monitor = _run(
+        [
+            r' 100/0x1:  openat(0xFFFFFFFFFFFFFFFE, "rel\0", 0x0, 0x0)		 = 3 0',
+        ]
+    )
+
+    assert bytes(tmp_path / "rel") in monitor.files
