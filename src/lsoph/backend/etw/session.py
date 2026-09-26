@@ -19,6 +19,7 @@ import logging
 from ctypes import (
     POINTER,
     Structure,
+    c_int32,
     c_int64,
     c_ubyte,
     c_uint16,
@@ -93,7 +94,7 @@ class EVENT_TRACE_PROPERTIES(Structure):
         ("LogFileMode", c_uint32),
         ("FlushTimer", c_uint32),
         ("EnableFlags", c_uint32),
-        ("AgeLimit", c_int64),
+        ("AgeLimit", c_int32),  # LONG, unioned with FlushThreshold
         ("NumberOfBuffers", c_uint32),
         ("FreeBuffers", c_uint32),
         ("EventsLost", c_uint32),
