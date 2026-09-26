@@ -1,6 +1,7 @@
 # Filename: src/lsoph/backend/psutil/backend.py
 """Psutil backend implementation using polling. Works with bytes paths."""
 
+import asyncio
 import logging
 import os
 import zlib
@@ -73,6 +74,11 @@ class Psutil(PollingBackend):
         return path
 
     async def _snapshot(self, pids: list[int]) -> Snapshot:
+        # Per-process open_files()/connections() calls are slow blocking
+        # syscalls (a /proc/net scan per pid): keep them off the event loop.
+        return await asyncio.to_thread(self._snapshot_sync, pids)
+
+    def _snapshot_sync(self, pids: list[int]) -> Snapshot:
         snapshot: Snapshot = {}
         for pid in pids:
             proc = _get_process_info(pid)
