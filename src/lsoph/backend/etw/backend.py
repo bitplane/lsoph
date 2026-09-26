@@ -86,7 +86,8 @@ class Etw(Backend):
             except OSError as e:
                 log.error(f"ETW session failed: {e}")
 
-        thread = threading.Thread(target=pump, name="etw_consumer")
+        # Daemon: if ProcessTrace ever fails to return, don't hang interpreter exit.
+        thread = threading.Thread(target=pump, name="etw_consumer", daemon=True)
         thread.start()
 
         next_child_check = time.monotonic() + CHILD_CHECK_INTERVAL

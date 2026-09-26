@@ -16,6 +16,7 @@ our error paths.
 
 import ctypes
 import logging
+import threading
 from ctypes import (
     POINTER,
     Structure,
@@ -295,12 +296,23 @@ class KernelFileSession:
         self.on_event = on_event
         self._session_handle = c_uint64(0)
         self._advapi32 = _advapi32()  # win32 only, by construction
+        # Serializes starting the session against stop(): a stop() that lands
+        # before StartTraceW must still prevent (or tear down) the session,
+        # or ProcessTrace would block forever on a session nobody stops.
+        self._lock = threading.Lock()
+        self._stopped = False
 
     def run(self) -> None:
-        self._start()
-        self._enable_provider()
+        with self._lock:
+            if self._stopped:
+                return
+            self._start()
         try:
+            self._enable_provider()
             self._consume()
+        except OSError:
+            if not self._stopped:
+                raise  # a stop() mid-setup makes the later calls fail; fine
         finally:
             self.stop()
 
@@ -394,8 +406,11 @@ class KernelFileSession:
         )
 
     def stop(self) -> None:
-        """Stop the session; safe to call from any thread, and repeatedly."""
-        self._control_stop()
+        """Stop the session; safe to call from any thread, repeatedly, and
+        before run() has started it."""
+        with self._lock:
+            self._stopped = True
+            self._control_stop()
 
 
 def is_admin() -> bool:
