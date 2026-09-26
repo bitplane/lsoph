@@ -139,3 +139,31 @@ def test_o_tmpfile_gets_the_requested_mode(tmp_path):
         """,
     )
     assert result.stdout.strip() == "640"
+
+
+def test_program_survives_lsoph_closing_the_fifo(tmp_path):
+    """If lsoph goes away first, the program's next record must not kill it
+    with SIGPIPE."""
+    fifo = tmp_path / "fifo"
+    os.mkfifo(fifo)
+    src, exe = tmp_path / "prog.c", tmp_path / "prog"
+    src.write_text(
+        r"""
+        #include <fcntl.h>
+        #include <unistd.h>
+        int main(void) {
+            usleep(300000);  /* lsoph closes the read end meanwhile */
+            for (int i = 0; i < 10; i++)
+                close(open("/dev/null", O_RDONLY));
+            return 0;
+        }
+        """
+    )
+    subprocess.run([_find_compiler(), str(src), "-o", str(exe)], check=True)
+    proc = subprocess.Popen(
+        [str(exe)],
+        env={**os.environ, "LD_PRELOAD": _compile_shim(), "LSOPH_PIPE": str(fifo)},
+    )
+    os.close(os.open(fifo, os.O_RDONLY))  # unblocks the shim, then goes away
+
+    assert proc.wait(timeout=10) == 0

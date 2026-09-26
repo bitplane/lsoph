@@ -21,10 +21,12 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 static int lsoph_fd = -1;
@@ -62,6 +64,29 @@ static int put_escaped(char *buf, size_t cap, size_t *len, const char *src) {
     return 1;
 }
 
+/* Write one record without letting a closed FIFO (lsoph exited or is
+ * stopping) SIGPIPE the traced program: block SIGPIPE around the write, and
+ * swallow the one it raised -- unless one was already pending for the
+ * program. On EPIPE, stop recording. */
+static void write_record(ssize_t (*real_write)(int, const void *, size_t),
+                         const char *buf, size_t len) {
+    sigset_t pipe_set, old_set, pending;
+    sigemptyset(&pipe_set);
+    sigaddset(&pipe_set, SIGPIPE);
+    sigprocmask(SIG_BLOCK, &pipe_set, &old_set);
+    sigpending(&pending);
+    int was_pending = sigismember(&pending, SIGPIPE);
+    /* Real write, so we don't re-enter our own write() wrapper. */
+    if (real_write(lsoph_fd, buf, len) < 0 && errno == EPIPE) {
+        lsoph_fd = -1;
+        if (!was_pending) {
+            struct timespec zero = {0, 0};
+            sigtimedwait(&pipe_set, NULL, &zero);
+        }
+    }
+    sigprocmask(SIG_SETMASK, &old_set, NULL);
+}
+
 static void record(const char *op, long fd, long ret, int err,
                    const char *path, const char *path2) {
     static ssize_t (*real_write)(int, const void *, size_t) = NULL;
@@ -90,8 +115,7 @@ static void record(const char *op, long fd, long ret, int err,
             return;
     }
     buf[len++] = '\n';
-    /* Real write, so we don't re-enter our own write() wrapper. */
-    real_write(lsoph_fd, buf, len);
+    write_record(real_write, buf, len);
 }
 
 __attribute__((constructor)) static void lsoph_init(void) {
