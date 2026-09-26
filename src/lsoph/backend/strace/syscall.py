@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any, List
 
 # Syscalls sets for faster lookup
-PROCESS_SYSCALLS = {"clone", "fork", "vfork"}
+PROCESS_SYSCALLS = {"clone", "clone3", "fork", "vfork"}
 EXIT_SYSCALLS = {"exit", "exit_group"}
 RESUME_SYSCALLS = {"rt_sigreturn", "sigreturn"}
 

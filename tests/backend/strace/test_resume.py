@@ -136,3 +136,13 @@ def test_exit_markers_become_exit_events():
         (43, "exit_group"),
         (44, "exit_group"),
     ]
+
+
+def test_clone3_reports_its_child_pid():
+    """glibc's pthread_create and posix_spawn use clone3."""
+    (event,) = _run(
+        ["42 clone3({flags=CLONE_VM|CLONE_VFORK, exit_signal=SIGCHLD}, 88) = 43"]
+    )
+
+    assert event.syscall == "clone3"
+    assert event.child_pid == 43
