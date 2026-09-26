@@ -397,3 +397,40 @@ def test_parse_minimal_struct():
     # Expect bytes struct
     assert_parsed_args(parsed, [b"{value=123}"])  # simple struct (bytes)
     assert parsed.syscall_complete.result_val == 0
+
+
+def test_parse_truncated_string():
+    """A buffer longer than -s ends in '"..."' followed by strace's '...'."""
+    parsed = parse_line('42 read(3, "abc"..., 8192) = 8192')
+    assert_parsed_args(parsed, [3, b"abc", 8192])
+    assert parsed.syscall_complete.result_val == 8192
+
+
+def test_parse_string_ending_in_backslash():
+    """An escaped backslash just before the closing quote ends the string."""
+    parsed = parse_line('42 openat(AT_FDCWD, "tab\\tq\\\\", O_RDONLY) = -1 ENOENT (x)')
+    assert_parsed_args(parsed, ["AT_FDCWD", b"tab\tq\\", "O_RDONLY"])
+
+
+def test_parse_iovec_array():
+    """readv/writev pass an array of structs containing strings."""
+    line = (
+        '42 writev(1, [{iov_base="hi]", iov_len=3}, '
+        '{iov_base="there\\n", iov_len=6}], 2) = 9'
+    )
+    parsed = parse_line(line)
+    assert_parsed_args(
+        parsed,
+        [
+            1,
+            b'[{iov_base="hi]", iov_len=3}, {iov_base="there\\n", iov_len=6}]',
+            2,
+        ],
+    )
+    assert parsed.syscall_complete.result_val == 9
+
+
+def test_parse_nested_struct_with_brace_in_string():
+    """A '}' inside a string doesn't end the struct early."""
+    parsed = parse_line('42 foo({a="}", b={c=1}}) = 0')
+    assert_parsed_args(parsed, [b'{a="}", b={c=1}}'])

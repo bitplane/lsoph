@@ -68,17 +68,22 @@ number = hex_integer | octal_integer | integer
 pid = integer.copy().setResultsName("pid")
 syscall_name = pp.Word(pp.alphas + "_", pp.alphanums + "_").setResultsName("syscall")
 
-# Strings - custom approach to preserve raw string exactly as it appears
-QUOTE = pp.Literal('"').suppress()
-STRING_CONTENT = pp.SkipTo('"', include=False, ignore=pp.Literal('\\"'))
-quoted_string = (QUOTE + STRING_CONTENT + QUOTE).setParseAction(
-    convert_raw_string_to_bytes
+# Strings: a C string token (any escape, including a trailing \\), plus the
+# "..." strace appends when the buffer was truncated by -s.
+C_STRING = r'"(?:[^"\\]|\\.)*"'
+quoted_string = pp.Regex(C_STRING + r"(?:\.\.\.)?").setParseAction(
+    lambda t: convert_raw_string_to_bytes([t[0].removesuffix("...")])
 )
 
-# Structs to bytes
-struct_content = pp.Forward()
-struct_content << pp.SkipTo("}", include=True)
-struct = (LBRACE + struct_content).setParseAction(convert_struct_to_bytes)
+# Structs and arrays (readv iovecs, poll fds, ...) are kept as their raw text,
+# nesting and strings containing brackets included.
+_c_string_expr = pp.Regex(C_STRING)
+struct = pp.originalTextFor(
+    pp.nestedExpr("{", "}", ignoreExpr=_c_string_expr)
+).addParseAction(convert_struct_to_bytes)
+array = pp.originalTextFor(
+    pp.nestedExpr("[", "]", ignoreExpr=_c_string_expr)
+).addParseAction(lambda t: t[0].encode("utf-8"))
 
 # Constants and flags parsing
 at_fdcwd = pp.Literal("AT_FDCWD")
@@ -96,6 +101,7 @@ pointer = hex_integer.copy()
 param_value = pp.Forward()
 param_value << (
     struct
+    | array
     | quoted_string
     | flags_expr
     | at_fdcwd
