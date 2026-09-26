@@ -60,3 +60,14 @@ def test_process_exit_closes_open_fds():
     )
 
     assert monitor.files[b"/etc/hosts"].status == "closed"
+
+
+def test_truss_is_only_offered_on_freebsd(monkeypatch):
+    import lsoph.backend.truss.backend as truss_backend
+    from lsoph.backend.truss.backend import Truss
+
+    monkeypatch.setattr(truss_backend.shutil, "which", lambda name: "/usr/bin/truss")
+    monkeypatch.setattr(truss_backend.sys, "platform", "sunos5")
+    assert not Truss.is_available()
+    monkeypatch.setattr(truss_backend.sys, "platform", "freebsd14")
+    assert Truss.is_available()

@@ -2,8 +2,8 @@
 """
 FreeBSD truss backend, built on the shared TracerBackend pipeline.
 
-truss is a FreeBSD/Solaris tool, so is_available() returns False on Linux and
-the backend simply won't be offered there. This is built against the documented
+is_available() is True only on FreeBSD: Solaris/illumos ship an incompatible
+truss, and Linux has none. This is built against the documented
 truss(1) output format and unit-tested against it, but has not yet been
 smoke-tested on a real FreeBSD host.
 """
@@ -12,6 +12,7 @@ import asyncio
 import logging
 import os
 import shutil
+import sys
 import time
 from collections.abc import AsyncIterator
 
@@ -33,8 +34,9 @@ class Truss(TracerBackend):
 
     @staticmethod
     def is_available() -> bool:
-        """Check if the truss executable is available (FreeBSD/Solaris)."""
-        return shutil.which("truss") is not None
+        """FreeBSD truss only: Solaris/illumos truss shares the name but not
+        the options (-s is a signal list there) or the output format."""
+        return sys.platform.startswith("freebsd") and shutil.which("truss") is not None
 
     def build_command(
         self,
