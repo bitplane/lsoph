@@ -14,6 +14,7 @@ programs (e.g. Go) are not covered; attach mode is impossible.
 """
 
 import asyncio
+import hashlib
 import logging
 import os
 import shutil
@@ -62,12 +63,17 @@ def _compile_shim() -> str | None:
 
     # Per-user cache dir: a shared /tmp would collide (or hand us a .so we
     # didn't compile) on multi-user machines.
-    so_path = Path(user_cache_dir("lsoph")) / "preload.so"
-    # Reuse the cached shim unless the source is newer.
-    if so_path.is_file() and so_path.stat().st_mtime >= _SHIM_SRC.stat().st_mtime:
+    # Keyed on the source hash, not mtimes: installed files keep their build
+    # time, so an upgrade would otherwise keep running an older cached shim.
+    digest = hashlib.sha256(_SHIM_SRC.read_bytes()).hexdigest()[:16]
+    so_path = Path(user_cache_dir("lsoph")) / f"preload-{digest}.so"
+    if so_path.is_file():
         return str(so_path)
     so_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Build to a private name and rename into place, so a concurrent lsoph
+    # never preloads a half-written object.
+    tmp_path = so_path.with_name(f"{so_path.name}.{os.getpid()}.tmp")
     cmd = [
         compiler,
         "-shared",
@@ -75,7 +81,7 @@ def _compile_shim() -> str | None:
         "-O2",
         str(_SHIM_SRC),
         "-o",
-        str(so_path),
+        str(tmp_path),
         "-ldl",
     ]
     try:
@@ -85,7 +91,9 @@ def _compile_shim() -> str | None:
         return None
     if result.returncode != 0:
         log.error(f"Failed to compile preload shim:\n{result.stderr}")
+        tmp_path.unlink(missing_ok=True)
         return None
+    os.replace(tmp_path, so_path)
     return str(so_path)
 
 
