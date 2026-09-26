@@ -17,6 +17,10 @@ from dataclasses import dataclass
 
 # Event IDs from the Microsoft-Windows-Kernel-File manifest.
 CREATE = 12
+# Cleanup: the last handle to the FILE_OBJECT was closed, in the closing
+# process's context. Close comes when the last reference drops, which for
+# cached files can be much later and from the System process (pid 4).
+CLEANUP = 13
 CLOSE = 14
 READ = 15
 WRITE = 16
@@ -75,7 +79,7 @@ def parse_event(
         (size,) = struct.unpack_from("<I", data, 8 + 3 * p + 4)
         return FileEvent(event_id, pid, timestamp, file_object, size=size)
 
-    if event_id == CLOSE:
+    if event_id in (CLEANUP, CLOSE):
         # Irp(p) FileObject(p) FileKey(p) IssuingThreadId(4)
         file_object = _pointer(data, p, p)
         return FileEvent(event_id, pid, timestamp, file_object)

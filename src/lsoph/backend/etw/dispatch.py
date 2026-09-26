@@ -2,7 +2,7 @@
 """Dispatch decoded kernel-file events into the Monitor.
 
 The FILE_OBJECT pointer plays the role an fd plays for the syscall tracers:
-Create maps it to a path, Read/Write/Close resolve through that mapping, and
+Create maps it to a path, Read/Write/Cleanup/Close resolve through that mapping, and
 an unknown FILE_OBJECT (opened before the trace session started) is skipped
 quietly, mirroring the strace handlers' unknown-fd guard.
 """
@@ -12,6 +12,7 @@ import logging
 from lsoph.monitor import Monitor
 
 from .parse import (
+    CLEANUP,
     CLOSE,
     CREATE,
     CREATE_NEW_FILE,
@@ -58,7 +59,8 @@ def process_file_event(
         monitor.read(pid, fobj, None, True, ts, bytes=event.size, **details)
     elif event.event_id == WRITE:
         monitor.write(pid, fobj, None, True, ts, bytes=event.size, **details)
-    elif event.event_id == CLOSE:
+    elif event.event_id in (CLEANUP, CLOSE):
+        # Cleanup normally closes it; a later Close then finds it unmapped.
         monitor.close(pid, fobj, True, ts, **details)
     elif event.event_id == RENAME_PATH:
         # FilePath is the new name; the old one is what the FILE_OBJECT was

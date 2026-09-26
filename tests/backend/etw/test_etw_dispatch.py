@@ -113,3 +113,20 @@ def test_unknown_file_object_never_falls_back_to_a_handle_scan(monkeypatch):
     )
 
     assert set(monitor.files) == {rb"C:\new"}
+
+
+def test_cleanup_closes_and_the_late_close_is_harmless():
+    """Cleanup (last handle closed, in-process) closes the file; the Close that
+    follows when the last reference drops -- possibly from pid 4 -- is a no-op."""
+    from lsoph.backend.etw.parse import CLEANUP
+
+    monitor = Monitor(identifier="t")
+    process_file_event(
+        FileEvent(CREATE, 100, 1.0, FOBJ, path=rb"C:\a.txt"), monitor, {100}
+    )
+
+    process_file_event(FileEvent(CLEANUP, 100, 2.0, FOBJ), monitor, {100})
+    assert monitor.files[rb"C:\a.txt"].status == "closed"
+
+    process_file_event(FileEvent(CLOSE, 100, 3.0, FOBJ), monitor, {100})
+    assert monitor.files[rb"C:\a.txt"].status == "closed"
