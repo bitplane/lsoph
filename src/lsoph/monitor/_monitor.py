@@ -439,11 +439,17 @@ class Monitor(Versioned):
             )
             return
 
-        # Transfer state
+        # Transfer state. Fds already open on the target keep it open (they
+        # hold the replaced file, but are tracked -- and closed -- by path).
+        target_open = new_info.open_by_pids
+        new_info.open_by_pids = old_info.open_by_pids
+        for open_pid, open_fds in target_open.items():
+            new_info.open_by_pids.setdefault(open_pid, set()).update(open_fds)
         new_info.status = (
             old_info.status if old_info.status != "deleted" else "accessed"
         )
-        new_info.open_by_pids = old_info.open_by_pids
+        if new_info.is_open and new_info.status not in ["open", "active"]:
+            new_info.status = "open"
         new_info.bytes_read = old_info.bytes_read
         new_info.bytes_written = old_info.bytes_written
         new_info.last_event_type = old_info.last_event_type
@@ -452,16 +458,10 @@ class Monitor(Versioned):
         new_info.event_history = old_info.event_history
         new_info.recent_event_types = old_info.recent_event_types
 
-        # Add events
-        details_for_old = {"renamed_to": new_path}
-        details_for_new = {"renamed_from": old_path}
-        self._add_event_to_history(
-            old_info, "RENAME", success, timestamp, details_for_old
+        # The history moved with the file, so one entry records the rename.
+        self._finalize_update(
+            new_info, "RENAME", success, timestamp, {"renamed_from": old_path}
         )
-        self._add_event_to_history(
-            new_info, "RENAME", success, timestamp, details_for_new
-        )
-        self._finalize_update(new_info, "RENAME", success, timestamp, details_for_new)
 
         # Update FD mappings
         pids_fds_to_update = []

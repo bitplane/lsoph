@@ -77,3 +77,32 @@ def test_successful_stat_of_a_deleted_path_clears_deleted():
     monitor.stat(100, b"/a", True, 3.0)
 
     assert monitor.files[b"/a"].status == "accessed"
+
+
+def test_rename_onto_an_open_file_keeps_both_fds_open():
+    """Renaming e over an open f leaves f open via both fds."""
+    monitor = Monitor(identifier="t")
+    monitor.open(100, b"/e", 7, True, 1.0)
+    monitor.open(100, b"/f", 8, True, 2.0)
+
+    monitor.rename(100, b"/e", b"/f", True, 3.0)
+    monitor.close(100, 7, True, 4.0)
+
+    info = monitor.files[b"/f"]
+    assert b"/e" not in monitor.files
+    assert info.status == "open"
+    assert info.open_by_pids == {100: {8}}
+
+    monitor.close(100, 8, True, 5.0)
+    assert info.status == "closed"
+
+
+def test_rename_records_one_history_entry():
+    monitor = Monitor(identifier="t")
+    monitor.open(100, b"/c", 3, True, 1.0)
+
+    monitor.rename(100, b"/c", b"/d", True, 2.0)
+
+    renames = [e for e in monitor.files[b"/d"].event_history if e["type"] == "RENAME"]
+    assert len(renames) == 1
+    assert renames[0]["details"]["renamed_from"] == b"/c"
