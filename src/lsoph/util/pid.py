@@ -1,6 +1,7 @@
 # Filename: src/lsoph/util/pid.py
 import logging
 import os
+import sys
 
 import psutil
 
@@ -97,6 +98,9 @@ def get_fd_path(pid: int, fd: int) -> bytes:
     if not psutil.pid_exists(pid):
         raise KeyError(f"PID {pid} does not exist.")
 
+    if sys.platform.startswith("linux"):
+        return _proc_fd_path(pid, fd)
+
     # Any inability to read the process's fds (permissions, gone, zombie) means
     # "not found" to callers, which only handle KeyError -- don't leak psutil's
     # AccessDenied/NoSuchProcess up the stack.
@@ -110,3 +114,16 @@ def get_fd_path(pid: int, fd: int) -> bytes:
         raise KeyError(f"File descriptor {fd} not found for PID {pid}.")
 
     return os.fsencode(fds[0].path)
+
+
+def _proc_fd_path(pid: int, fd: int) -> bytes:
+    """Linux: read one fd's target from /proc -- O(1), where psutil's
+    open_files() lists every fd. Non-files (sockets, pipes, anon inodes read
+    as "socket:[123]" etc.) raise KeyError, like fds psutil doesn't list."""
+    try:
+        target = os.readlink(f"/proc/{pid}/fd/{fd}".encode())
+    except OSError as e:
+        raise KeyError(f"Cannot read fd {fd} of PID {pid}: {e}") from e
+    if not target.startswith(b"/"):
+        raise KeyError(f"PID {pid} fd {fd} is not a file: {target!r}")
+    return target.removesuffix(b" (deleted)")
