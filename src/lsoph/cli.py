@@ -39,9 +39,9 @@ def parse_arguments(
         epilog=f"Backends (default: {default_backend}):\n"
         f"{backend_list}\n\n"
         "Examples:\n"
-        "  lsoph -p 1234 5678       # Attach to PIDs using default backend\n"
-        "  lsoph -b strace sleep 10 # Run 'sleep 10' using strace backend\n"
-        "  lsoph -b psutil find .   # Run 'find .' using psutil backend",
+        "  lsoph -p 1234 5678          # Attach to PIDs using default backend\n"
+        "  lsoph -b strace -c sleep 10 # Run 'sleep 10' using strace backend\n"
+        "  lsoph -b psutil -c find .   # Run 'find .' using psutil backend",
     )
     parser.add_argument(
         "-b",
@@ -53,6 +53,7 @@ def parse_arguments(
     parser.add_argument(
         "--log",
         default="INFO",
+        type=str.upper,  # accept --log debug
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "TRACE"],
         help="Set the logging level (default: INFO)",
     )
@@ -147,10 +148,6 @@ def main(argv: list[str] | None = None) -> int:
         log.info("Textual UI finished.")
         return 0
 
-    except argparse.ArgumentError as e:
-        # Handle argparse errors gracefully (already printed by argparse)
-        log.error(f"Argument Error: {e}")
-        return 2
     except Exception as e:
         log.critical(f"FATAL ERROR: {e}", exc_info=True)
         raise

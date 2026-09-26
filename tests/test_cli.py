@@ -34,3 +34,26 @@ def test_help_lists_each_available_backend_with_its_description(capsys):
     for name, cls in BACKENDS.items():
         assert name in out
         assert cls.description in out
+
+
+def test_help_examples_parse(capsys):
+    """Every example in --help is a valid command line (backend aside, since
+    which backends exist depends on the host)."""
+    with pytest.raises(SystemExit):
+        parse_arguments(BACKENDS, ["--help"])
+    examples = [
+        line.split("#")[0].split()[1:]
+        for line in capsys.readouterr().out.splitlines()
+        if line.strip().startswith("lsoph ")
+    ]
+    assert examples
+
+    for argv in examples:
+        if "-b" in argv:
+            i = argv.index("-b")
+            del argv[i : i + 2]
+        parse_arguments(BACKENDS, argv)
+
+
+def test_log_level_is_case_insensitive():
+    assert parse_arguments(BACKENDS, ["--log", "debug", "-p", "1"]).log == "DEBUG"
