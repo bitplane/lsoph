@@ -78,3 +78,20 @@ def test_dup2_onto_an_open_fd_closes_its_file():
 
     assert monitor.files[b"/tmp/b"].status == "closed"
     assert monitor.files[b"/tmp/a"].open_by_pids == {P: {3, 4}}
+
+
+def test_fcntl_dupfd_is_a_dup():
+    """os.dup() is fcntl(fd, F_DUPFD_CLOEXEC, 0) under the hood."""
+    monitor = _trace(
+        [
+            f'{P} openat(AT_FDCWD, "/tmp/a", O_RDONLY) = 3',
+            f"{P} fcntl(3, F_DUPFD_CLOEXEC, 0) = 4",
+            f"{P} fcntl(3, F_GETFL) = 0x8000 (flags O_RDONLY|O_LARGEFILE)",
+            f"{P} close(3) = 0",
+            f'{P} read(4, "x", 1) = 1',
+        ]
+    )
+
+    info = monitor.files[b"/tmp/a"]
+    assert info.open_by_pids == {P: {4}}
+    assert info.bytes_read == 1

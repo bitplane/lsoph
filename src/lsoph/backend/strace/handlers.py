@@ -392,7 +392,7 @@ def _handle_dup(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
         return
     pid, timestamp = event.pid, event.timestamp
     old_fd = event.args[0]
-    new_fd = event.result_int if event.syscall == "dup" else event.args[1]
+    new_fd = event.result_int if event.syscall in ("dup", "fcntl") else event.args[1]
     if not isinstance(new_fd, int) or new_fd < 0:
         return
     try:
@@ -403,6 +403,12 @@ def _handle_dup(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
     if new_fd != old_fd and new_fd in monitor.pid_fd_map.get(pid, {}):
         monitor.close(pid, new_fd, True, timestamp, syscall=event.syscall)
     monitor.open(pid, path, new_fd, True, timestamp, syscall=event.syscall)
+
+
+def _handle_fcntl(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
+    """fcntl(fd, F_DUPFD[_CLOEXEC], min) = newfd is a dup (os.dup uses it)."""
+    if len(event.args) > 1 and event.args[1] in ("F_DUPFD", "F_DUPFD_CLOEXEC"):
+        _handle_dup(event, monitor, cwd_map)
 
 
 # --- CWD Update Logic ---
@@ -501,6 +507,7 @@ SYSCALL_HANDLERS: dict[str, SyscallHandler] = {
     "dup": _handle_dup,
     "dup2": _handle_dup,
     "dup3": _handle_dup,
+    "fcntl": _handle_fcntl,
     # Delete handlers
     "unlink": _handle_delete,
     "unlinkat": _handle_unlinkat,
