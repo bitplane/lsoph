@@ -23,7 +23,9 @@ Runtime notes to validate on a real host:
 import asyncio
 import logging
 import os
+import shlex
 import shutil
+import tempfile
 import time
 from collections.abc import AsyncIterator
 
@@ -43,6 +45,10 @@ class Dtruss(TracerBackend):
     )
     # dtruss writes its trace stream to stderr (via dtrace -o /dev/stderr).
     output_channel = OutputChannel.STDERR
+
+    def __init__(self, monitor):
+        super().__init__(monitor)
+        self._wrapper: str | None = None  # see _run_argv
 
     @staticmethod
     def is_available() -> bool:
@@ -75,8 +81,28 @@ class Dtruss(TracerBackend):
                 )
             argv += ["-p", str(valid[0])]
         else:
-            argv += list(run_command)
+            argv += self._run_argv(run_command)
         return argv
+
+    def _run_argv(self, command: list[str]) -> list[str]:
+        """dtruss hands the command to dtrace -c as one string, which dtrace
+        splits on whitespace: an argument with spaces or quotes would come out
+        mangled. Such commands run via an exec wrapper script instead."""
+        if all(arg and shlex.quote(arg) == arg for arg in command):
+            return list(command)
+        fd, self._wrapper = tempfile.mkstemp(prefix="lsoph_dtruss_", suffix=".sh")
+        with os.fdopen(fd, "w") as script:
+            script.write(f"#!/bin/sh\nexec {shlex.join(command)}\n")
+        os.chmod(self._wrapper, 0o700)
+        return [self._wrapper]
+
+    async def _run(self, attach_pids, run_command):
+        try:
+            await super()._run(attach_pids, run_command)
+        finally:
+            if self._wrapper:
+                os.unlink(self._wrapper)
+                self._wrapper = None
 
     async def process_lines(
         self, lines: AsyncIterator[bytes], attach_ids: list[int] | None

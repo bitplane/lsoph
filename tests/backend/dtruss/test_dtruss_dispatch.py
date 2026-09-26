@@ -4,7 +4,10 @@ Exercises parse + the shared syscall dispatch without needing macOS/DTrace.
 """
 
 import asyncio
+import os
+import subprocess
 
+import lsoph.backend.dtruss.backend as dtruss_backend
 from lsoph.backend.dtruss.backend import Dtruss
 from lsoph.monitor import Monitor
 
@@ -64,3 +67,23 @@ def test_openat_with_hex_at_fdcwd_resolves_against_cwd(tmp_path, monkeypatch):
     )
 
     assert bytes(tmp_path / "rel") in monitor.files
+
+
+def test_run_command_args_with_spaces_survive_dtraces_split(monkeypatch):
+    """dtrace -c splits the command on whitespace; quoting-sensitive commands
+    go through an exec wrapper that preserves each argument."""
+    monkeypatch.setattr(dtruss_backend.shutil, "which", lambda name: "/usr/bin/dtruss")
+    backend = Dtruss(Monitor(identifier="t"))
+
+    plain = backend.build_command(None, None, ["ls", "-l", "/tmp"])
+    assert plain == ["/usr/bin/dtruss", "-f", "ls", "-l", "/tmp"]
+
+    command = ["printf", "%s|", "a b", "it's", ""]
+    argv = backend.build_command(None, None, command)
+    try:
+        assert argv[:2] == ["/usr/bin/dtruss", "-f"] and len(argv) == 3
+        assert " " not in argv[2]  # survives dtrace's split
+        out = subprocess.run([argv[2]], capture_output=True, text=True).stdout
+        assert out == "a b|it's||"
+    finally:
+        os.unlink(argv[2])
