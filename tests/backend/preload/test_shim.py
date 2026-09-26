@@ -119,3 +119,23 @@ def test_records_escape_separators_and_drop_oversized_paths(tmp_path):
     opens = [r.split(b"\t") for r in records if r.startswith(b"OPEN\t")]
     assert [_unescape(r[5]) for r in opens] == [bytes(odd)]
     assert all(len(r) < 4096 for r in records)
+
+
+def test_o_tmpfile_gets_the_requested_mode(tmp_path):
+    result = _run_under_shim(
+        tmp_path,
+        rf"""
+        #define _GNU_SOURCE
+        #include <fcntl.h>
+        #include <stdio.h>
+        #include <sys/stat.h>
+        int main(void) {{
+            int fd = open("{tmp_path}", O_TMPFILE | O_RDWR, 0640);
+            struct stat st;
+            if (fd < 0 || fstat(fd, &st) != 0) return 2;
+            printf("%o\n", st.st_mode & 0777);
+            return 0;
+        }}
+        """,
+    )
+    assert result.stdout.strip() == "640"

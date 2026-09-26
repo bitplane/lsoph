@@ -121,9 +121,17 @@ __attribute__((constructor)) static void lsoph_init(void) {
 
 /* --- open family (recorded as OPEN; fd is the return value) --- */
 
+/* As glibc's __OPEN_NEEDS_MODE: O_TMPFILE takes a mode too. */
+#ifdef O_TMPFILE
+#define NEEDS_MODE(flags)                                                      \
+    (((flags) & O_CREAT) != 0 || ((flags) & O_TMPFILE) == O_TMPFILE)
+#else
+#define NEEDS_MODE(flags) (((flags) & O_CREAT) != 0)
+#endif
+
 #define OPEN_BODY(realname, path)                                              \
     mode_t mode = 0;                                                           \
-    if (flags & O_CREAT) {                                                     \
+    if (NEEDS_MODE(flags)) {                                                   \
         va_list ap;                                                            \
         va_start(ap, flags);                                                   \
         mode = va_arg(ap, int);                                                \
