@@ -25,11 +25,27 @@
 #include <unistd.h>
 
 static int lsoph_fd = -1;
+/* Identity of the FIFO, to notice the program replacing our fd behind our
+ * back (dup2 onto it, close_range, a raw close syscall...). */
+static dev_t lsoph_dev;
+static ino_t lsoph_ino;
+
+static int lsoph_fd_ok(void) {
+    struct stat st;
+    if (lsoph_fd < 0)
+        return 0;
+    if (fstat(lsoph_fd, &st) != 0 || st.st_dev != lsoph_dev ||
+        st.st_ino != lsoph_ino) {
+        lsoph_fd = -1; /* never write records into the program's own file */
+        return 0;
+    }
+    return 1;
+}
 
 static void record(const char *op, long fd, long ret, int err,
                    const char *path, const char *path2) {
     static ssize_t (*real_write)(int, const void *, size_t) = NULL;
-    if (lsoph_fd < 0)
+    if (!lsoph_fd_ok())
         return;
     if (!real_write)
         real_write = dlsym(RTLD_NEXT, "write");
@@ -52,8 +68,24 @@ __attribute__((constructor)) static void lsoph_init(void) {
     if (!p)
         return;
     int (*real_open)(const char *, int, ...) = dlsym(RTLD_NEXT, "open");
-    if (real_open)
-        lsoph_fd = real_open(p, O_WRONLY); /* blocks until lsoph opens the read end */
+    if (!real_open)
+        return;
+    int fd = real_open(p, O_WRONLY); /* blocks until lsoph opens the read end */
+    if (fd < 0)
+        return;
+    /* Park it above the fds programs normally use, and close-on-exec: an
+     * exec'd child reopens the FIFO from its own constructor. */
+    int high = fcntl(fd, F_DUPFD_CLOEXEC, 512);
+    if (high >= 0) {
+        close(fd); /* lsoph_fd is still -1, so this isn't recorded */
+        fd = high;
+    }
+    struct stat st;
+    if (fstat(fd, &st) != 0)
+        return;
+    lsoph_dev = st.st_dev;
+    lsoph_ino = st.st_ino;
+    lsoph_fd = fd;
 }
 
 /* --- open family (recorded as OPEN; fd is the return value) --- */
@@ -115,12 +147,13 @@ int creat(const char *path, mode_t mode) {
 
 int close(int fd) {
     static int (*real)(int) = NULL;
+    if (fd == lsoph_fd && lsoph_fd >= 0)
+        return 0; /* e.g. a daemon's close-all loop: keep our pipe */
     if (!real)
         real = dlsym(RTLD_NEXT, "close");
     int ret = real(fd);
     int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
-    if (fd != lsoph_fd)
-        record("CLOSE", fd, ret, err, NULL, NULL);
+    record("CLOSE", fd, ret, err, NULL, NULL);
     errno = saved_errno;
     return ret;
 }

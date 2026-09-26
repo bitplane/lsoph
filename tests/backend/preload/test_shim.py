@@ -48,3 +48,39 @@ def test_successful_calls_leave_errno_alone(tmp_path):
         """,
     )
     assert result.stdout.strip() == str(errno.ENOENT)
+
+
+_CLOSE_ALL_THEN_WRITE = r"""
+    #include <fcntl.h>
+    #include <string.h>
+    #include <sys/syscall.h>
+    #include <unistd.h>
+    int main(int argc, char **argv) {
+        for (int fd = 3; fd < 1024; fd++)
+            RAW ? syscall(SYS_close, fd) : close(fd);
+        int fd = open(argv[0], O_WRONLY | O_TRUNC);
+        write(fd, "DATA", 4);
+        close(fd);
+        return 0;
+    }
+"""
+
+
+@pytest.mark.parametrize("raw", [False, True], ids=["libc-close", "raw-syscall"])
+def test_program_closing_all_fds_never_receives_records(tmp_path, raw):
+    """A daemon-style close-all loop must not let the next file the program
+    opens inherit the shim's pipe fd (records would land in that file)."""
+    log_file = tmp_path / "records"
+    log_file.write_text("")
+    victim = tmp_path / "victim"
+    source = _CLOSE_ALL_THEN_WRITE.replace("RAW", "1" if raw else "0")
+    source = source.replace("argv[0]", f'"{victim}"')
+    victim.write_text("")
+
+    result = _run_under_shim(tmp_path, source, env={"LSOPH_PIPE": str(log_file)})
+
+    assert result.returncode == 0
+    assert victim.read_text() == "DATA"
+    if not raw:
+        # A libc close() of our fd is ignored, so tracing carries on.
+        assert f"\t{victim}" in log_file.read_text()
