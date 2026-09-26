@@ -77,3 +77,11 @@ def test_fork_in_the_child_has_no_child_pid():
     """The parent's fork returns the child pid; the child's own returns 0."""
     assert _parse("100: fork() = 101 (0x65)").child_pid == 101
     assert _parse("101: fork() = 0 (0x0)").child_pid is None
+
+
+def test_truncated_buffer_is_parsed():
+    """truss -s prints a truncated buffer as "abc"...; the event is kept."""
+    event = _parse('34233: read(3,"abc"...,4096) = 4096 (0x1000)')
+
+    assert event.args == [3, b"abc", 4096]
+    assert event.result_int == 4096
