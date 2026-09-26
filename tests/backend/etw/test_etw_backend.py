@@ -2,6 +2,7 @@
 run anywhere; the real session needs Windows)."""
 
 import asyncio
+import time
 
 import lsoph.backend.etw.backend as etw_backend
 import lsoph.backend.etw.session as etw_session
@@ -44,8 +45,6 @@ def test_attach_dispatches_events_from_the_session_thread(monkeypatch):
         def run(self):
             self.on_event(FileEvent(CREATE, 123, 1.0, 0xBEEF, path=rb"C:\seen"))
             while not self.stopped:  # stay alive until the backend stops us
-                import time
-
                 time.sleep(0.01)
 
         def stop(self):
@@ -79,8 +78,6 @@ def test_attach_filters_unwatched_events_on_the_session_thread(monkeypatch):
             self.on_event(FileEvent(CREATE, 999, 1.0, 0xBAD, path=rb"C:\other"))
             self.on_event(FileEvent(CREATE, 123, 1.0, 0xBEEF, path=rb"C:\seen"))
             while not self.stopped:
-                import time
-
                 time.sleep(0.01)
 
         def stop(self):

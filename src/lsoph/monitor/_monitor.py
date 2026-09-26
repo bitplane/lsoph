@@ -423,10 +423,8 @@ class Monitor(Versioned):
         # distinct dictionary keys and would otherwise delete the sole entry.
         if old_path == new_path:
             event_details = details.copy()
-            event_details.update({"renamed_from": old_path, "renamed_to": new_path})
-            self._finalize_update(
-                old_info, "RENAME", success, timestamp, event_details
-            )
+            event_details["renamed_from"] = old_path
+            self._finalize_update(old_info, "RENAME", success, timestamp, event_details)
             return
 
         try:
