@@ -84,3 +84,38 @@ def test_program_closing_all_fds_never_receives_records(tmp_path, raw):
     if not raw:
         # A libc close() of our fd is ignored, so tracing carries on.
         assert f"\t{victim}" in log_file.read_text()
+
+
+def test_records_escape_separators_and_drop_oversized_paths(tmp_path):
+    """A tab/newline/backslash in a path can't split or corrupt a record, and
+    a path too long for one atomic write is dropped rather than cut short."""
+    from lsoph.backend.preload.backend import _unescape
+
+    log_file = tmp_path / "records"
+    log_file.write_text("")
+    odd = tmp_path / "a\tb\nc\\d"
+    result = _run_under_shim(
+        tmp_path,
+        rf"""
+        #include <fcntl.h>
+        #include <string.h>
+        #include <unistd.h>
+        int main(void) {{
+            char longpath[6000];
+            memset(longpath, 'x', sizeof longpath - 1);
+            longpath[0] = '/';
+            longpath[sizeof longpath - 1] = 0;
+            open(longpath, O_RDONLY);
+            close(open("{str(odd).encode("unicode_escape").decode()}",
+                       O_WRONLY | O_CREAT, 0600));
+            return 0;
+        }}
+        """,
+        env={"LSOPH_PIPE": str(log_file)},
+    )
+    assert result.returncode == 0
+
+    records = log_file.read_bytes().splitlines()
+    opens = [r.split(b"\t") for r in records if r.startswith(b"OPEN\t")]
+    assert [_unescape(r[5]) for r in opens] == [bytes(odd)]
+    assert all(len(r) < 4096 for r in records)

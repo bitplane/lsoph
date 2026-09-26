@@ -17,6 +17,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -45,6 +46,15 @@ _ERRNO_NAMES = {
     22: "EINVAL",
     36: "ENAMETOOLONG",
 }
+
+
+# The shim escapes the record's separators inside paths.
+_ESCAPE_RE = re.compile(rb"\\([\\tn])")
+_ESCAPES = {b"\\": b"\\", b"t": b"\t", b"n": b"\n"}
+
+
+def _unescape(field: bytes) -> bytes:
+    return _ESCAPE_RE.sub(lambda m: _ESCAPES[m.group(1)], field)
 
 
 def _find_compiler() -> str | None:
@@ -168,8 +178,8 @@ class Preload(TracerBackend):
         fd = int(parts[2])
         ret = int(parts[3])
         err = int(parts[4])
-        path = parts[5]
-        path2 = parts[6] if len(parts) > 6 else None
+        path = _unescape(parts[5])
+        path2 = _unescape(parts[6]) if len(parts) > 6 else None
 
         ts = time.time()
         success = err == 0

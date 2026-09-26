@@ -6,6 +6,8 @@
  *
  *     OP \t pid \t fd \t ret \t errno \t path [\t path2] \n
  *
+ * where a backslash, tab or newline in a path is escaped as \\, \t or \n.
+ *
  * lsoph creates the FIFO, sets LD_PRELOAD and LSOPH_PIPE, and reads the records.
  * The format is ours, so the Python parser is trivial. Records are <= PIPE_BUF,
  * so concurrent writes from threads/children stay atomic.
@@ -18,6 +20,7 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,6 +45,23 @@ static int lsoph_fd_ok(void) {
     return 1;
 }
 
+/* Append src to buf at *len, escaping the record's separators (\\, \t, \n).
+ * Returns 0 if it doesn't fit. */
+static int put_escaped(char *buf, size_t cap, size_t *len, const char *src) {
+    for (; *src; src++) {
+        char esc = *src == '\\' ? '\\' : *src == '\t' ? 't' : *src == '\n' ? 'n' : 0;
+        if (*len + (esc ? 2 : 1) > cap)
+            return 0;
+        if (esc) {
+            buf[(*len)++] = '\\';
+            buf[(*len)++] = esc;
+        } else {
+            buf[(*len)++] = *src;
+        }
+    }
+    return 1;
+}
+
 static void record(const char *op, long fd, long ret, int err,
                    const char *path, const char *path2) {
     static ssize_t (*real_write)(int, const void *, size_t) = NULL;
@@ -51,16 +71,27 @@ static void record(const char *op, long fd, long ret, int err,
         real_write = dlsym(RTLD_NEXT, "write");
     if (!real_write)
         return;
-    char buf[8192];
-    int n = snprintf(buf, sizeof buf, "%s\t%ld\t%ld\t%ld\t%d\t%s%s%s\n",
-                     op, (long)getpid(), fd, ret, err, path ? path : "",
-                     path2 ? "\t" : "", path2 ? path2 : "");
-    if (n < 0)
+    /* One write of at most PIPE_BUF bytes is atomic, so records from
+     * concurrent threads and processes never interleave. */
+    char buf[PIPE_BUF];
+    const size_t cap = sizeof buf - 1; /* room for the final newline */
+    int n = snprintf(buf, sizeof buf, "%s\t%ld\t%ld\t%ld\t%d\t", op,
+                     (long)getpid(), fd, ret, err);
+    if (n < 0 || (size_t)n > cap)
         return;
-    if (n > (int)sizeof buf)
-        n = sizeof buf;
+    size_t len = (size_t)n;
+    if (path && !put_escaped(buf, cap, &len, path))
+        return; /* too long to send whole: drop rather than send it cut */
+    if (path2) {
+        if (len + 1 > cap)
+            return;
+        buf[len++] = '\t';
+        if (!put_escaped(buf, cap, &len, path2))
+            return;
+    }
+    buf[len++] = '\n';
     /* Real write, so we don't re-enter our own write() wrapper. */
-    real_write(lsoph_fd, buf, (size_t)n);
+    real_write(lsoph_fd, buf, len);
 }
 
 __attribute__((constructor)) static void lsoph_init(void) {
