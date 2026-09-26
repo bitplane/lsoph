@@ -33,9 +33,13 @@ def test_open_call_nami_ret_is_assembled():
 
 
 def test_read_without_nami_uses_call_args():
-    """A read has no NAMI; fd/count come from CALL, bytes from RET."""
+    """A read has no NAMI; fd/count come from CALL, bytes from RET (which
+    kdump prints as "decimal/0xhex" once it's above 9)."""
     events = _feed(
-        ["  517 ls  CALL  read(0x3,0x8049000,0x1000)", "  517 ls  RET   read 4096"]
+        [
+            "  517 ls  CALL  read(0x3,0x8049000,0x1000)",
+            "  517 ls  RET   read 4096/0x1000",
+        ]
     )
 
     assert events[0].syscall == "read"
@@ -102,3 +106,17 @@ def test_interleaved_pids_do_not_collide():
 def test_non_record_line_is_ignored():
     """A line that isn't a kdump record yields nothing."""
     assert _feed(["not a kdump record"]) == []
+
+
+def test_ret_above_nine_with_hex_suffix():
+    """An open returning fd 12 is printed "12/0xc" and must still assemble."""
+    events = _feed(
+        [
+            "  517 cat  CALL  openat(AT_FDCWD,0x800,0)",
+            '  517 cat  NAMI  "/etc/hosts"',
+            "  517 cat  RET   openat 12/0xc",
+        ]
+    )
+
+    assert len(events) == 1
+    assert events[0].result_int == 12

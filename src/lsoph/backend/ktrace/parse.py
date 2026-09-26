@@ -28,8 +28,9 @@ _LINE_RE = re.compile(
     r"^\s*(?P<pid>\d+)\s+(?P<prog>\S+)\s+(?P<type>[A-Z]+)\s+(?P<data>.*)$"
 )
 _CALL_RE = re.compile(r"^(?P<call>\w+)(?:\((?P<args>.*)\))?\s*$")
+# Returns above 9 carry a hex copy: "RET read 100/0x64".
 _RET_RE = re.compile(
-    r"^(?P<call>\w+)\s+(?P<ret>-?\d+)(?:\s+errno\s+(?P<errno>\d+).*)?\s*$"
+    r"^(?P<call>\w+)\s+(?P<ret>-?\d+)(?:/0x[0-9a-fA-F]+)?(?:\s+errno\s+(?P<errno>\d+).*)?\s*$"
 )
 _NAMI_RE = re.compile(r'^"(?P<path>.*)"\s*$')
 
