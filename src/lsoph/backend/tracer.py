@@ -29,6 +29,32 @@ log = logging.getLogger(__name__)
 DRAIN_TIMEOUT = 2.0
 
 
+async def _open_fifo_reader(fifo_path: str) -> int:
+    """Open a FIFO for reading without blocking the event loop.
+
+    The open blocks until a writer (the tracer) opens the other end, which may
+    never happen -- e.g. a static binary that ignores LD_PRELOAD, or a tracer
+    that dies on a usage error. So it runs in a worker thread, and if we're
+    cancelled while it waits, we briefly open the write end to release it.
+    """
+    loop = asyncio.get_running_loop()
+    opening = loop.run_in_executor(None, os.open, fifo_path, os.O_RDONLY)
+    try:
+        return await asyncio.shield(opening)
+    except asyncio.CancelledError:
+        try:
+            os.close(os.open(fifo_path, os.O_WRONLY | os.O_NONBLOCK))
+        except OSError:
+            pass  # ENXIO: the thread isn't waiting (it already opened or failed)
+
+        def _close_orphan(fut: asyncio.Future) -> None:
+            if not fut.cancelled() and fut.exception() is None:
+                os.close(fut.result())
+
+        opening.add_done_callback(_close_orphan)
+        raise
+
+
 class OutputChannel(Enum):
     """Where a tracer emits its trace stream."""
 
@@ -227,9 +253,7 @@ class TracerBackend(Backend):
         loop = asyncio.get_running_loop()
 
         try:
-            # Opening a FIFO for reading blocks until a writer (the tracer) opens
-            # the other end.
-            read_fd = os.open(fifo_path, os.O_RDONLY)
+            read_fd = await _open_fifo_reader(fifo_path)
             fifo_file_obj = os.fdopen(read_fd, "rb", buffering=0)
             read_fd = -1  # ownership transferred to fifo_file_obj
 
