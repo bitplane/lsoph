@@ -146,3 +146,16 @@ def test_unresolvable_fd_is_looked_up_once_until_reopened(monkeypatch):
     monitor.open(100, b"/a", 9, True, 3.0)
     monitor.read(100, 9, None, True, 4.0, bytes=1)
     assert monitor.files[b"/a"].bytes_read == 1
+
+
+def test_history_holds_each_events_own_details_and_errors_clear():
+    monitor = Monitor(identifier="t")
+    monitor.stat(100, b"/a", False, 1.0, error_name="ENOENT", error_msg="nope")
+    monitor.open(100, b"/a", 3, True, 2.0, syscall="openat")
+
+    info = monitor.files[b"/a"]
+    stat_event, open_event = info.event_history
+    assert stat_event["details"] == {"error_name": "ENOENT", "error_msg": "nope"}
+    assert open_event["details"] == {"syscall": "openat", "fd": 3}
+    assert "error_name" not in info.details
+    assert "last_error_name" not in info.details

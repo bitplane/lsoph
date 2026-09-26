@@ -169,14 +169,15 @@ class Monitor(Versioned):
         if not success and "error_name" in details:
             current_details["last_error_name"] = details["error_name"]
             current_details["last_error_msg"] = details.get("error_msg")
-        elif success and "last_error_name" in current_details:
-            current_details.pop("last_error_name", None)
-            current_details.pop("last_error_msg", None)
+        elif success:
+            # An earlier failure's error is not this success's.
+            for key in ("error_name", "error_msg", "last_error_name", "last_error_msg"):
+                current_details.pop(key, None)
 
         info.details = current_details
 
-        # Add event to history
-        self._add_event_to_history(info, event_type, success, timestamp, info.details)
+        # History records this event's own details, not the accumulation.
+        self._add_event_to_history(info, event_type, success, timestamp, details)
 
     @changes
     def ignore(self, path: bytes):
