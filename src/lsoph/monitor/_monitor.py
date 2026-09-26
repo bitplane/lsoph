@@ -221,8 +221,8 @@ class Monitor(Versioned):
         self._finalize_update(info, "OPEN", success, timestamp, event_details)
 
         if success and fd >= 0:
-            if info.status != "deleted":
-                info.status = "open"
+            # Also clears "deleted": the path exists again (recreated).
+            info.status = "open"
 
             # Update mappings
             self._update_pid_fd_map(pid, fd, path)
@@ -323,7 +323,7 @@ class Monitor(Versioned):
 
         # Update status
         if success:
-            if info.status in ["unknown", "closed", "accessed"]:
+            if info.status in ["unknown", "closed", "accessed", "deleted"]:
                 info.status = "accessed"
         elif info.status != "deleted":
             info.status = "error"

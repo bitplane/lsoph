@@ -55,3 +55,25 @@ def test_file_reopened_on_a_std_fd_is_tracked_by_that_fd():
     assert info.status == "closed"
     assert info.open_by_pids == {}
     assert monitor.get_path(100, 0) == b"<STDIN>"
+
+
+def test_recreating_a_deleted_path_clears_deleted():
+    """Delete-then-recreate (editor saves, log rotation) is live again."""
+    monitor = Monitor(identifier="t")
+    monitor.open(100, b"/a", 3, True, 1.0)
+    monitor.close(100, 3, True, 2.0)
+    monitor.delete(100, b"/a", True, 3.0)
+
+    monitor.open(100, b"/a", 3, True, 4.0)
+
+    assert monitor.files[b"/a"].status == "open"
+
+
+def test_successful_stat_of_a_deleted_path_clears_deleted():
+    monitor = Monitor(identifier="t")
+    monitor.stat(100, b"/a", True, 1.0)
+    monitor.delete(100, b"/a", True, 2.0)
+
+    monitor.stat(100, b"/a", True, 3.0)
+
+    assert monitor.files[b"/a"].status == "accessed"
