@@ -84,3 +84,25 @@ def test_delete_path_extracts_the_path():
 def test_unhandled_event_id_returns_none():
     """Event IDs we don't decode (e.g. QueryInformation) are ignored."""
     assert parse_event(22, b"\x00" * 32, pointer_size=8, pid=100, timestamp=1.0) is None
+
+
+def test_translate_nt_path_maps_devices_to_drives():
+    from lsoph.backend.etw.parse import translate_nt_path
+
+    devices = {
+        rb"\Device\HarddiskVolume1": b"D:",
+        rb"\Device\HarddiskVolume10": b"C:",
+    }
+    assert (
+        translate_nt_path(rb"\Device\HarddiskVolume10\Windows\x.dll", devices)
+        == rb"C:\Windows\x.dll"
+    )
+    assert translate_nt_path(rb"\Device\HarddiskVolume1\a", devices) == rb"D:\a"
+    assert translate_nt_path(rb"\Device\HarddiskVolume1", devices) == b"D:\\"
+    assert (
+        translate_nt_path(rb"\Device\Mup\server\share\f", devices)
+        == rb"\\server\share\f"
+    )
+    # Unknown devices and non-NT paths pass through unchanged.
+    assert translate_nt_path(rb"\Device\Nope\a", devices) == rb"\Device\Nope\a"
+    assert translate_nt_path(rb"C:\a", devices) == rb"C:\a"

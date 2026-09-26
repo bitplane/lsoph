@@ -88,3 +88,24 @@ def parse_event(
         return FileEvent(event_id, pid, timestamp, file_object, path=path)
 
     return None
+
+
+_MUP_PREFIX = b"\\Device\\Mup\\"
+
+
+def translate_nt_path(path: bytes, device_map: dict[bytes, bytes]) -> bytes:
+    """Rewrite an NT device path (\\Device\\HarddiskVolume3\\x) to its DOS
+    form (C:\\x) using a dos_device_map() result. Network paths under the
+    multiple UNC provider become \\\\server\\share\\x. Paths with no known
+    device are returned unchanged."""
+    if path.startswith(_MUP_PREFIX):
+        return b"\\\\" + path[len(_MUP_PREFIX) :]
+    # ["", "Device", "<name>", rest]: matching whole components means
+    # HarddiskVolume1 can't claim a path on HarddiskVolume10.
+    parts = path.split(b"\\", 3)
+    if len(parts) < 3 or parts[0]:
+        return path
+    drive = device_map.get(b"\\".join(parts[:3]))
+    if drive is None:
+        return path
+    return drive + (b"\\" + parts[3] if len(parts) == 4 else b"\\")
