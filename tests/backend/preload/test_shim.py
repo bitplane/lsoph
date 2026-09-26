@@ -167,3 +167,43 @@ def test_program_survives_lsoph_closing_the_fifo(tmp_path):
     os.close(os.open(fifo, os.O_RDONLY))  # unblocks the shim, then goes away
 
     assert proc.wait(timeout=10) == 0
+
+
+def test_relative_paths_are_recorded_absolute_as_of_the_call(tmp_path):
+    """openat(dirfd, ...) and a relative open before a chdir must record the
+    path they actually opened, not one joined to a later cwd."""
+    from lsoph.backend.preload.backend import _unescape
+
+    log_file = tmp_path / "records"
+    log_file.write_text("")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "x").write_text("")
+    (tmp_path / "y").write_text("")
+    result = _run_under_shim(
+        tmp_path,
+        rf"""
+        #include <fcntl.h>
+        #include <unistd.h>
+        int main(void) {{
+            chdir("{tmp_path}");
+            int dir = open("sub", O_RDONLY | O_DIRECTORY);
+            close(openat(dir, "x", O_RDONLY));
+            close(open("y", O_RDONLY));
+            chdir("/");
+            return 0;
+        }}
+        """,
+        env={"LSOPH_PIPE": str(log_file)},
+    )
+    assert result.returncode == 0
+
+    opened = [
+        _unescape(r.split(b"\t")[5])
+        for r in log_file.read_bytes().splitlines()
+        if r.startswith(b"OPEN\t")
+    ]
+    assert opened[-3:] == [
+        bytes(tmp_path / "sub"),
+        bytes(tmp_path / "sub" / "x"),
+        bytes(tmp_path / "y"),
+    ]

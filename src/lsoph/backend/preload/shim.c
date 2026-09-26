@@ -51,7 +51,10 @@ static int lsoph_fd_ok(void) {
  * Returns 0 if it doesn't fit. */
 static int put_escaped(char *buf, size_t cap, size_t *len, const char *src) {
     for (; *src; src++) {
-        char esc = *src == '\\' ? '\\' : *src == '\t' ? 't' : *src == '\n' ? 'n' : 0;
+        char esc = *src == '\\'   ? '\\'
+                   : *src == '\t' ? 't'
+                   : *src == '\n' ? 'n'
+                                  : 0;
         if (*len + (esc ? 2 : 1) > cap)
             return 0;
         if (esc) {
@@ -87,7 +90,30 @@ static void write_record(ssize_t (*real_write)(int, const void *, size_t),
     sigprocmask(SIG_SETMASK, &old_set, NULL);
 }
 
-static void record(const char *op, long fd, long ret, int err,
+/* Make path absolute as of now: relative to dirfd (or the cwd), which may
+ * have changed by the time lsoph reads the record. Returns path unchanged if
+ * already absolute or unresolvable. */
+static const char *absolute(int dirfd, const char *path, char *out,
+                            size_t cap) {
+    if (!path || path[0] == '/' || path[0] == 0)
+        return path;
+    char base[PATH_MAX];
+    if (dirfd == AT_FDCWD) {
+        if (!getcwd(base, sizeof base))
+            return path;
+    } else {
+        char link[64];
+        snprintf(link, sizeof link, "/proc/self/fd/%d", dirfd);
+        ssize_t n = readlink(link, base, sizeof base - 1);
+        if (n <= 0)
+            return path;
+        base[n] = 0;
+    }
+    int n = snprintf(out, cap, "%s%s%s", base, base[1] ? "/" : "", path);
+    return n > 0 && (size_t)n < cap ? out : path;
+}
+
+static void record(const char *op, long fd, long ret, int err, int dirfd,
                    const char *path, const char *path2) {
     static ssize_t (*real_write)(int, const void *, size_t) = NULL;
     if (!lsoph_fd_ok())
@@ -105,6 +131,9 @@ static void record(const char *op, long fd, long ret, int err,
     if (n < 0 || (size_t)n > cap)
         return;
     size_t len = (size_t)n;
+    char abs1[PATH_MAX], abs2[PATH_MAX];
+    path = absolute(dirfd, path, abs1, sizeof abs1);
+    path2 = absolute(dirfd, path2, abs2, sizeof abs2);
     if (path && !put_escaped(buf, cap, &len, path))
         return; /* too long to send whole: drop rather than send it cut */
     if (path2) {
@@ -153,7 +182,7 @@ __attribute__((constructor)) static void lsoph_init(void) {
 #define NEEDS_MODE(flags) (((flags) & O_CREAT) != 0)
 #endif
 
-#define OPEN_BODY(realname, path)                                              \
+#define OPEN_BODY(realname, dirfd, path)                                       \
     mode_t mode = 0;                                                           \
     if (NEEDS_MODE(flags)) {                                                   \
         va_list ap;                                                            \
@@ -163,7 +192,7 @@ __attribute__((constructor)) static void lsoph_init(void) {
     }                                                                          \
     int ret = realname;                                                        \
     int saved_errno = errno, err = ret < 0 ? saved_errno : 0;                  \
-    record("OPEN", ret, ret, err, path, NULL);                                 \
+    record("OPEN", ret, ret, err, dirfd, path, NULL);                          \
     errno = saved_errno;                                                       \
     return ret;
 
@@ -171,28 +200,28 @@ int open(const char *path, int flags, ...) {
     static int (*real)(const char *, int, ...) = NULL;
     if (!real)
         real = dlsym(RTLD_NEXT, "open");
-    OPEN_BODY(real(path, flags, mode), path)
+    OPEN_BODY(real(path, flags, mode), AT_FDCWD, path)
 }
 
 int open64(const char *path, int flags, ...) {
     static int (*real)(const char *, int, ...) = NULL;
     if (!real)
         real = dlsym(RTLD_NEXT, "open64");
-    OPEN_BODY(real(path, flags, mode), path)
+    OPEN_BODY(real(path, flags, mode), AT_FDCWD, path)
 }
 
 int openat(int dirfd, const char *path, int flags, ...) {
     static int (*real)(int, const char *, int, ...) = NULL;
     if (!real)
         real = dlsym(RTLD_NEXT, "openat");
-    OPEN_BODY(real(dirfd, path, flags, mode), path)
+    OPEN_BODY(real(dirfd, path, flags, mode), dirfd, path)
 }
 
 int openat64(int dirfd, const char *path, int flags, ...) {
     static int (*real)(int, const char *, int, ...) = NULL;
     if (!real)
         real = dlsym(RTLD_NEXT, "openat64");
-    OPEN_BODY(real(dirfd, path, flags, mode), path)
+    OPEN_BODY(real(dirfd, path, flags, mode), dirfd, path)
 }
 
 int creat(const char *path, mode_t mode) {
@@ -201,7 +230,7 @@ int creat(const char *path, mode_t mode) {
         real = dlsym(RTLD_NEXT, "creat");
     int ret = real(path, mode);
     int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
-    record("OPEN", ret, ret, err, path, NULL);
+    record("OPEN", ret, ret, err, AT_FDCWD, path, NULL);
     errno = saved_errno;
     return ret;
 }
@@ -216,7 +245,7 @@ int close(int fd) {
         real = dlsym(RTLD_NEXT, "close");
     int ret = real(fd);
     int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
-    record("CLOSE", fd, ret, err, NULL, NULL);
+    record("CLOSE", fd, ret, err, AT_FDCWD, NULL, NULL);
     errno = saved_errno;
     return ret;
 }
@@ -228,7 +257,7 @@ ssize_t read(int fd, void *buf, size_t count) {
     ssize_t ret = real(fd, buf, count);
     int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
     if (fd != lsoph_fd)
-        record("READ", fd, (long)ret, err, NULL, NULL);
+        record("READ", fd, (long)ret, err, AT_FDCWD, NULL, NULL);
     errno = saved_errno;
     return ret;
 }
@@ -240,7 +269,7 @@ ssize_t write(int fd, const void *buf, size_t count) {
     ssize_t ret = real(fd, buf, count);
     int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
     if (fd != lsoph_fd)
-        record("WRITE", fd, (long)ret, err, NULL, NULL);
+        record("WRITE", fd, (long)ret, err, AT_FDCWD, NULL, NULL);
     errno = saved_errno;
     return ret;
 }
@@ -253,7 +282,7 @@ int access(const char *path, int mode) {
         real = dlsym(RTLD_NEXT, "access");
     int ret = real(path, mode);
     int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
-    record("STAT", -1, ret, err, path, NULL);
+    record("STAT", -1, ret, err, AT_FDCWD, path, NULL);
     errno = saved_errno;
     return ret;
 }
@@ -264,7 +293,7 @@ int stat(const char *path, struct stat *st) {
         real = dlsym(RTLD_NEXT, "stat");
     int ret = real(path, st);
     int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
-    record("STAT", -1, ret, err, path, NULL);
+    record("STAT", -1, ret, err, AT_FDCWD, path, NULL);
     errno = saved_errno;
     return ret;
 }
@@ -275,7 +304,7 @@ int lstat(const char *path, struct stat *st) {
         real = dlsym(RTLD_NEXT, "lstat");
     int ret = real(path, st);
     int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
-    record("STAT", -1, ret, err, path, NULL);
+    record("STAT", -1, ret, err, AT_FDCWD, path, NULL);
     errno = saved_errno;
     return ret;
 }
@@ -286,7 +315,7 @@ int unlink(const char *path) {
         real = dlsym(RTLD_NEXT, "unlink");
     int ret = real(path);
     int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
-    record("UNLINK", -1, ret, err, path, NULL);
+    record("UNLINK", -1, ret, err, AT_FDCWD, path, NULL);
     errno = saved_errno;
     return ret;
 }
@@ -297,7 +326,7 @@ int rename(const char *oldp, const char *newp) {
         real = dlsym(RTLD_NEXT, "rename");
     int ret = real(oldp, newp);
     int saved_errno = errno, err = ret < 0 ? saved_errno : 0;
-    record("RENAME", -1, ret, err, oldp, newp);
+    record("RENAME", -1, ret, err, AT_FDCWD, oldp, newp);
     errno = saved_errno;
     return ret;
 }
