@@ -71,3 +71,9 @@ def test_process_exit_becomes_exit_event():
 def test_unparseable_line_returns_none():
     """A line that is not truss output is skipped."""
     assert _parse("this is not truss output") is None
+
+
+def test_fork_in_the_child_has_no_child_pid():
+    """The parent's fork returns the child pid; the child's own returns 0."""
+    assert _parse("100: fork() = 101 (0x65)").child_pid == 101
+    assert _parse("101: fork() = 0 (0x0)").child_pid is None

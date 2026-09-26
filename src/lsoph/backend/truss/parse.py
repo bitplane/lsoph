@@ -141,7 +141,7 @@ def parse_truss_line(line_str: str, timestamp: float) -> Syscall | None:
         name in PROCESS_SYSCALLS
         and error_name is None
         and result_int is not None
-        and result_int >= 0
+        and result_int > 0  # the child's own fork() returns 0
     ):
         child_pid = result_int
 
