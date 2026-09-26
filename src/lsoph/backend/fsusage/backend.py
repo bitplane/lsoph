@@ -23,7 +23,7 @@ from collections.abc import AsyncIterator
 
 from lsoph.monitor import Monitor
 
-from ..tracer import OutputChannel, TracerBackend
+from ..tracer import TARGET_EXIT_GRACE, OutputChannel, TracerBackend
 from .parse import FsEvent, parse_fsusage_line
 
 log = logging.getLogger(__name__)
@@ -91,6 +91,7 @@ class Fsusage(TracerBackend):
         async def _stop_when_target_exits():
             await process.wait()
             log.info(f"Traced command {process.pid} exited; stopping fs_usage.")
+            await asyncio.sleep(TARGET_EXIT_GRACE)
             await self.stop()
 
         watcher = asyncio.create_task(_stop_when_target_exits())

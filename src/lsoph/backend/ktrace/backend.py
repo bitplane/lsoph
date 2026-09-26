@@ -26,7 +26,7 @@ import time
 from collections.abc import AsyncIterator
 
 from ..syscall_dispatch import process_syscall_event
-from ..tracer import OutputChannel, TracerBackend
+from ..tracer import TARGET_EXIT_GRACE, OutputChannel, TracerBackend
 from .parse import KdumpParser
 
 log = logging.getLogger(__name__)
@@ -139,6 +139,7 @@ class Ktrace(TracerBackend):
         async def _stop_when_target_exits():
             await self._run_proc.wait()
             log.info("Traced command exited; stopping ktrace backend.")
+            await asyncio.sleep(TARGET_EXIT_GRACE)
             await self.stop()
 
         asyncio.create_task(_stop_when_target_exits(), name="ktrace_target_watch")

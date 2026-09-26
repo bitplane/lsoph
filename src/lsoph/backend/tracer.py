@@ -27,6 +27,11 @@ log = logging.getLogger(__name__)
 # Grace period to let the output consumer drain remaining output after the
 # tracer process exits, before it is cancelled.
 DRAIN_TIMEOUT = 2.0
+# How long to keep reading after a run-mode target exits, for tracers that
+# attach to it rather than launch it (fs_usage, ktrace). Their output lags the
+# target -- fs_usage buffers kernel events, kdump -l polls about once a second
+# -- so stopping at once would lose the target's last events.
+TARGET_EXIT_GRACE = 1.5
 
 
 async def _open_fifo_reader(fifo_path: str) -> int:
