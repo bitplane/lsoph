@@ -399,6 +399,9 @@ def _handle_dup(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
         path = monitor.get_path(pid, old_fd)
     except KeyError:
         return
+    # dup2/dup3 onto an open fd closes whatever it held first.
+    if new_fd != old_fd and new_fd in monitor.pid_fd_map.get(pid, {}):
+        monitor.close(pid, new_fd, True, timestamp, syscall=event.syscall)
     monitor.open(pid, path, new_fd, True, timestamp, syscall=event.syscall)
 
 

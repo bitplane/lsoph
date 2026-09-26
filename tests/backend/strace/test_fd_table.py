@@ -65,3 +65,16 @@ def test_threads_share_one_fd_table():
         ]
     )
     assert monitor.files[b"/tmp/a"].status == "closed"
+
+
+def test_dup2_onto_an_open_fd_closes_its_file():
+    monitor = _trace(
+        [
+            f'{P} openat(AT_FDCWD, "/tmp/a", O_RDONLY) = 3',
+            f'{P} openat(AT_FDCWD, "/tmp/b", O_RDONLY) = 4',
+            f"{P} dup2(3, 4) = 4",
+        ]
+    )
+
+    assert monitor.files[b"/tmp/b"].status == "closed"
+    assert monitor.files[b"/tmp/a"].open_by_pids == {P: {3, 4}}
