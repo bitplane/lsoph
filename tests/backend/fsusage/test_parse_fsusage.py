@@ -98,3 +98,18 @@ def test_disk_io_line_is_ignored():
 def test_non_fsusage_line_returns_none():
     """A line that is not fs_usage output is skipped."""
     assert parse_fsusage_line("hello world") is None
+
+
+def test_brackets_and_fields_in_the_path_are_not_parsed_as_fields():
+    """photo[12].jpg is a filename, not errno 12; F=/B= in a path aren't fields."""
+    line = (
+        "08:02:07.011716  open     F=3    (R___________)  "
+        "/Users/me/photo[12] F=9 B=0x10.jpg     0.000074   Preview.4017721"
+    )
+    event = parse_fsusage_line(line)
+
+    assert event.success
+    assert event.error_name is None
+    assert event.fd == 3
+    assert event.byte_count == 0
+    assert event.path == b"/Users/me/photo[12] F=9 B=0x10.jpg"

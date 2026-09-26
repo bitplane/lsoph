@@ -113,10 +113,20 @@ def parse_fsusage_line(line_str: str) -> FsEvent | None:
     body = match.group("body")
     tid = int(match.group("tid"))
 
-    fd_match = _FD_RE.search(body)
+    # Path is the absolute path starting at the first '/' (F=/errno/flags/B=
+    # fields never contain one). Search the fields only in what precedes it,
+    # so a path like photo[12].jpg isn't read as errno 12.
+    path = None
+    fields = body
+    slash = body.find("/")
+    if slash != -1:
+        path = os.fsencode(body[slash:].strip())
+        fields = body[:slash]
+
+    fd_match = _FD_RE.search(fields)
     fd = int(fd_match.group(1)) if fd_match else None
 
-    errno_match = _ERRNO_RE.search(body)
+    errno_match = _ERRNO_RE.search(fields)
     if errno_match:
         errno = int(errno_match.group(1))
         error_name = _ERRNO_NAMES.get(errno, f"ERR#{errno}")
@@ -125,15 +135,8 @@ def parse_fsusage_line(line_str: str) -> FsEvent | None:
         error_name = None
         success = True
 
-    bytes_match = _BYTES_RE.search(body)
+    bytes_match = _BYTES_RE.search(fields)
     byte_count = int(bytes_match.group(1), 16) if bytes_match else 0
-
-    # Path is the absolute path starting at the first '/' (F=/errno/flags/B=
-    # fields never contain one).
-    path = None
-    slash = body.find("/")
-    if slash != -1:
-        path = os.fsencode(body[slash:].strip())
 
     return FsEvent(
         op=op,
