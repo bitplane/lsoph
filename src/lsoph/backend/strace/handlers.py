@@ -405,10 +405,15 @@ def _handle_dup(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
 # --- CWD Update Logic ---
 def update_cwd(pid: int, cwd_map: dict[int, bytes], monitor: Monitor, event: Syscall):
     """Updates the CWD map (bytes) based on chdir or fchdir syscalls."""
-    if event.syscall == "chdir":
-        _handle_chdir(pid, cwd_map, monitor, event)
-    elif event.syscall == "fchdir":
-        _handle_fchdir(pid, cwd_map, monitor, event)
+    # Same unknown-PID/FD guard as path_handler: an unresolvable path must skip
+    # this event, not escape and kill the consumer.
+    try:
+        if event.syscall == "chdir":
+            _handle_chdir(pid, cwd_map, monitor, event)
+        elif event.syscall == "fchdir":
+            _handle_fchdir(pid, cwd_map, monitor, event)
+    except KeyError:
+        log.debug(f"PID {pid} probably already gone during {event.syscall}")
 
 
 def _handle_chdir(

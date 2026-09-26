@@ -151,3 +151,16 @@ def test_unresolvable_relative_path_is_skipped_without_raising():
     _dispatch(_event("unlink", [b"relative/path"]), monitor, cwd_map={})
 
     assert len(monitor) == 0
+
+
+def test_fchdir_on_unknown_pid_is_skipped_not_raised():
+    """An unresolvable fchdir fd must not escape and kill the consumer."""
+    from lsoph.backend.strace.handlers import update_cwd
+
+    monitor = Monitor(identifier="t")
+    cwd_map = {}
+    event = _event("fchdir", [7], pid=999999)
+
+    update_cwd(999999, cwd_map, monitor, event)
+
+    assert cwd_map == {}
