@@ -9,6 +9,7 @@ per-syscall handlers are the shared syscall model, which currently lives in the
 `strace` package.
 """
 
+import dataclasses
 import logging
 
 import psutil
@@ -28,6 +29,7 @@ async def process_syscall_event(
     cwd_map: dict[int, bytes],
     initial_pids: set[int],
     default_cwd: bytes | None = None,
+    fd_owners: dict[int, int] | None = None,
 ):
     """Update Monitor and CWD state (bytes) from a single Syscall event.
 
@@ -35,7 +37,15 @@ async def process_syscall_event(
     be read from /proc (e.g. the process already exited). In run mode this is the
     directory the command was launched in, which it inherits -- so relative paths
     resolve even for short-lived processes that are gone by the time we dispatch.
+
+    fd_owners maps a thread id to the task whose fd table it shares, for tracers
+    that report per-thread ids (strace): its events are applied to that owner,
+    so an fd opened on one thread and closed on another is one fd.
     """
+    owners = fd_owners if fd_owners is not None else {}
+    tid = event.pid
+    if tid in owners:
+        event = dataclasses.replace(event, pid=owners[tid])
     pid = event.pid
     syscall_name = event.syscall
 
@@ -53,7 +63,9 @@ async def process_syscall_event(
             log.warning(f"Could not determine CWD for new child PID {child_pid}.")
         # A forked child gets a copy of the fd table; one cloned with
         # CLONE_FILES (a thread) shares it instead.
-        if b"CLONE_FILES" not in event.raw_line:
+        if b"CLONE_FILES" in event.raw_line and fd_owners is not None:
+            fd_owners[child_pid] = pid
+        else:
             monitor.inherit_fds(pid, child_pid)
         return
 
@@ -73,10 +85,16 @@ async def process_syscall_event(
         handlers.update_cwd(pid, cwd_map, monitor, event)
         return
 
-    # 4. Process exit.
+    # 4. Exit. A thread leaving on its own (exit) leaves the shared table as
+    # is; the owner exiting, or any exit_group, ends the whole process.
     if syscall_name in EXIT_SYSCALLS:
+        if tid != pid and syscall_name != "exit_group":
+            del owners[tid]
+            return
         monitor.process_exit(pid, event.timestamp)
         cwd_map.pop(pid, None)
+        for thread in [t for t, owner in owners.items() if owner == pid]:
+            del owners[thread]
         return
 
     # 5. Dispatch to the per-syscall handler.

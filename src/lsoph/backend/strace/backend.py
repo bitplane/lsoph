@@ -109,6 +109,7 @@ class Strace(TracerBackend):
     ) -> None:
         initial_pids: Set[int] = set(attach_ids or [])
         cwd_map: dict[int, bytes] = {}
+        fd_owners: dict[int, int] = {}  # strace reports thread ids
         # In run mode the traced command inherits our launch directory; use it as
         # the CWD fallback so relative paths still resolve even if the process is
         # gone by the time we dispatch its events.
@@ -134,7 +135,7 @@ class Strace(TracerBackend):
                 break
             processed += 1
             await process_syscall_event(
-                event, self.monitor, cwd_map, initial_pids, default_cwd
+                event, self.monitor, cwd_map, initial_pids, default_cwd, fd_owners
             )
             await asyncio.sleep(0)  # Yield control for UI responsiveness.
         log.info(f"Strace event processing finished. Processed {processed} events.")

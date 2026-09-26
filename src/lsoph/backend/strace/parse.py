@@ -129,11 +129,13 @@ async def parse_strace_stream_pyparsing(
                 exit_pid = exited[0] if exited[0] is not None else current_pid
                 log.debug(f"PID {exit_pid}: {exited[1]}")
                 if exit_pid is not None:
-                    # Report it as the exit it was, so fds get closed.
+                    # Report it as the task exit it was, so fds get closed.
+                    # strace prints one per thread, so it's an exit, not an
+                    # exit_group (the main thread's own one ends the process).
                     parsed_count += 1
                     yield Syscall(
                         pid=exit_pid,
-                        syscall="exit_group",
+                        syscall="exit",
                         timestamp=event_timestamp,
                         raw_line=line_b,
                     )

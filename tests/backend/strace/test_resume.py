@@ -132,9 +132,9 @@ def test_exit_markers_become_exit_events():
     )
 
     assert [(e.pid, e.syscall) for e in events[1:]] == [
-        (42, "exit_group"),
-        (43, "exit_group"),
-        (44, "exit_group"),
+        (42, "exit"),
+        (43, "exit"),
+        (44, "exit"),
     ]
 
 
