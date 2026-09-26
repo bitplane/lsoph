@@ -95,3 +95,26 @@ def test_fcntl_dupfd_is_a_dup():
     info = monitor.files[b"/tmp/a"]
     assert info.open_by_pids == {P: {4}}
     assert info.bytes_read == 1
+
+
+def test_exec_closes_cloexec_fds_and_close_range_closes_its_range():
+    """Captured from real strace 6.19 (pid replaced)."""
+    monitor = _trace(
+        [
+            f'{P} openat(AT_FDCWD, "/etc/hostname", O_RDONLY|O_CLOEXEC) = 3',
+            f'{P} openat(AT_FDCWD, "/etc/passwd", O_RDONLY) = 4',
+            f"{P} fcntl(4, F_SETFD, FD_CLOEXEC)    = 0",
+            f'{P} openat(AT_FDCWD, "/etc/group", O_RDONLY) = 5',
+            f"{P} close_range(5, 4294967295, 0)    = 0",
+            f'{P} openat(AT_FDCWD, "/etc/group", O_RDONLY) = 5',
+            f"{P} close_range(5, 5, CLOSE_RANGE_CLOEXEC) = 0",
+            f'{P} openat(AT_FDCWD, "/etc/shells", O_RDONLY) = 6',
+            f'{P} execve("/bin/true", ["true"], 0x7ffee47e6408 /* 76 vars */) = 0',
+        ]
+    )
+
+    files = monitor.files
+    assert not files[b"/etc/hostname"].is_open  # O_CLOEXEC
+    assert not files[b"/etc/passwd"].is_open  # F_SETFD FD_CLOEXEC
+    assert not files[b"/etc/group"].is_open  # close_range, then CLOEXEC range
+    assert files[b"/etc/shells"].open_by_pids == {P: {6}}  # survives exec

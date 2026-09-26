@@ -39,6 +39,8 @@ FILE_STRUCT_SYSCALLS = [
     "mkdir", "mkdirat", "link", "symlink", "truncate", "ftruncate",
     # fd duplication
     "dup", "dup2", "dup3", "fcntl",
+    # fds closed wholesale
+    "execve", "execveat", "close_range",
     # cwd
     "chdir", "fchdir",
 ]  # fmt: skip

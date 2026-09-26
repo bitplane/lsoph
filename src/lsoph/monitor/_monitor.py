@@ -40,6 +40,8 @@ class Monitor(Versioned):
         # from before tracing): don't repeat the lookup on every read/write.
         # Forgotten whenever that fd is opened or closed, or the pid exits.
         self._unresolvable_fds: set[tuple[int, int]] = set()
+        # Close-on-exec fds per pid, for tracers that can see the flag.
+        self._cloexec_fds: dict[int, set[int]] = {}
         self.files = {}
         self.backend_pid = None
         log.info(f"Initialized Monitor for identifier: '{identifier}'")
@@ -91,6 +93,7 @@ class Monitor(Versioned):
     def _update_pid_fd_map(self, pid: int, fd: int, path: bytes | None):
         """Updates or removes entries in the pid_fd_map."""
         self._unresolvable_fds.discard((pid, fd))
+        self._cloexec_fds.get(pid, set()).discard(fd)  # a new fd starts clear
         if path:
             if pid not in self.pid_fd_map:
                 self.pid_fd_map[pid] = {}
@@ -492,11 +495,27 @@ class Monitor(Versioned):
             info = self.files.get(path)
             if info:
                 info.open_by_pids.setdefault(child_pid, set()).add(fd)
+        if parent_pid in self._cloexec_fds:
+            self._cloexec_fds[child_pid] = set(self._cloexec_fds[parent_pid])
+
+    def set_cloexec(self, pid: int, fd: int, cloexec: bool = True):
+        """Record an fd's close-on-exec flag (O_CLOEXEC, FD_CLOEXEC, ...)."""
+        if cloexec:
+            self._cloexec_fds.setdefault(pid, set()).add(fd)
+        else:
+            self._cloexec_fds.get(pid, set()).discard(fd)
+
+    @changes
+    def exec(self, pid: int, timestamp: float):
+        """A successful exec closes the process's close-on-exec fds."""
+        for fd in sorted(self._cloexec_fds.pop(pid, set())):
+            self.close(pid, fd, True, timestamp, closed_on="exec")
 
     @changes
     def process_exit(self, pid: int, timestamp: float):
         """Handles cleanup when a process exits."""
         self._unresolvable_fds = {k for k in self._unresolvable_fds if k[0] != pid}
+        self._cloexec_fds.pop(pid, None)
         if pid not in self.pid_fd_map:
             return
 

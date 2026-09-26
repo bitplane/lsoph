@@ -102,6 +102,7 @@ async def process_syscall_event(
     if handler:
         try:
             handler(event, monitor, cwd_map)
+            handlers.track_cloexec(event, monitor)
         except Exception:
             log.exception(f"Handler error for {syscall_name} (event: {event!r})")
     else:

@@ -155,6 +155,8 @@ full_line_parser = (
 )
 
 full_line_parser.parseWithTabs()
+# strace annotates some args, e.g. execve's "0x7ffc... /* 76 vars */".
+full_line_parser.ignore(pp.cStyleComment)
 
 
 # --- Split-syscall handling (strace -f interleaving) ---

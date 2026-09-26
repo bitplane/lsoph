@@ -411,6 +411,51 @@ def _handle_fcntl(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
         _handle_dup(event, monitor, cwd_map)
 
 
+# --- Close-on-exec, exec and close_range ---
+
+_CLOEXEC_OPENS = {"open", "openat", "openat2", "creat", "dup3"}
+
+
+def track_cloexec(event: Syscall, monitor: Monitor) -> None:
+    """Keep the monitor's close-on-exec flags in step with the fd's flags.
+    Run after the event's own handler (which maps any new fd)."""
+    if not event.success:
+        return
+    new_fd = event.result_int
+    if event.syscall in _CLOEXEC_OPENS and new_fd is not None and new_fd >= 0:
+        # Only flags can spell O_CLOEXEC (strace prints them symbolically).
+        if b"O_CLOEXEC" in event.raw_line:
+            monitor.set_cloexec(event.pid, new_fd)
+    elif event.syscall == "fcntl" and len(event.args) > 2:
+        if event.args[1] == "F_DUPFD_CLOEXEC":
+            monitor.set_cloexec(event.pid, new_fd)
+        elif event.args[1] == "F_SETFD":
+            monitor.set_cloexec(
+                event.pid, event.args[0], "FD_CLOEXEC" in str(event.args[2])
+            )
+
+
+def _handle_execve(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
+    """A successful exec closes the close-on-exec fds."""
+    if event.success:
+        monitor.exec(event.pid, event.timestamp)
+
+
+def _handle_close_range(event: Syscall, monitor: Monitor, cwd_map: dict[int, bytes]):
+    """close_range(first, last, flags): close (or, with CLOSE_RANGE_CLOEXEC,
+    mark close-on-exec) every tracked fd in the range."""
+    if not event.success or len(event.args) < 3:
+        return
+    first, last, flags = event.args[:3]
+    pid = event.pid
+    fds = [fd for fd in monitor.pid_fd_map.get(pid, {}) if first <= fd <= last]
+    for fd in fds:
+        if "CLOSE_RANGE_CLOEXEC" in str(flags):
+            monitor.set_cloexec(pid, fd)
+        else:
+            monitor.close(pid, fd, True, event.timestamp, **_details(event))
+
+
 # --- CWD Update Logic ---
 def update_cwd(pid: int, cwd_map: dict[int, bytes], monitor: Monitor, event: Syscall):
     """Updates the CWD map (bytes) based on chdir or fchdir syscalls."""
@@ -508,6 +553,9 @@ SYSCALL_HANDLERS: dict[str, SyscallHandler] = {
     "dup2": _handle_dup,
     "dup3": _handle_dup,
     "fcntl": _handle_fcntl,
+    "execve": _handle_execve,
+    "execveat": _handle_execve,
+    "close_range": _handle_close_range,
     # Delete handlers
     "unlink": _handle_delete,
     "unlinkat": _handle_unlinkat,
