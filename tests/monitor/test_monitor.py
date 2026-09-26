@@ -106,3 +106,17 @@ def test_rename_records_one_history_entry():
     renames = [e for e in monitor.files[b"/d"].event_history if e["type"] == "RENAME"]
     assert len(renames) == 1
     assert renames[0]["details"]["renamed_from"] == b"/c"
+
+
+def test_std_streams_can_be_ignored_but_ignore_all_keeps_them():
+    monitor = Monitor(identifier="t")
+    monitor.write(100, 1, None, True, 1.0, bytes=3)
+    monitor.write(100, 2, None, True, 1.0, bytes=3)
+    monitor.open(100, b"/a", 3, True, 1.0)
+
+    monitor.ignore_all()
+    assert set(monitor.files) == {b"<STDOUT>", b"<STDERR>"}
+
+    monitor.ignore(b"<STDOUT>")
+    monitor.write(100, 1, None, True, 2.0, bytes=3)
+    assert set(monitor.files) == {b"<STDERR>"}

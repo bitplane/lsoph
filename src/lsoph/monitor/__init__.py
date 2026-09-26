@@ -7,7 +7,7 @@ This package provides the core state management for monitored file access.
 
 # Expose the main classes at the package level
 from ._fileinfo import FileInfo
-from ._monitor import Monitor
+from ._monitor import STD_PATHS, Monitor
 
 # Define what gets imported with 'from lsoph.monitor import *' (optional)
-__all__ = ["Monitor", "FileInfo"]
+__all__ = ["Monitor", "FileInfo", "STD_PATHS"]

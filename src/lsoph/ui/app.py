@@ -14,7 +14,7 @@ from textual.worker import Worker, WorkerState
 
 from lsoph.backend.base import Backend
 from lsoph.log import LogBuffer
-from lsoph.monitor import FileInfo, Monitor
+from lsoph.monitor import STD_PATHS, FileInfo, Monitor
 from lsoph.util.short_path import short_path
 
 from .detail_screen import DetailScreen
@@ -261,9 +261,9 @@ class LsophApp(App[None]):
             return
 
         log.info("Ignoring all tracked files.")
-        # Get current active files (bytes paths) before ignoring
+        # Count what ignore_all will actually hide (it leaves std streams).
         count_before = len(
-            [fi for fi in self.monitor if fi.path not in self.monitor.ignored_paths]
+            [fi for fi in self.monitor if fi.path not in STD_PATHS.values()]
         )
         if count_before == 0:
             self.notify("No active files to ignore.", timeout=2)

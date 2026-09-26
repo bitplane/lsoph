@@ -175,8 +175,9 @@ class Monitor(Versioned):
 
     @changes
     def ignore(self, path: bytes):
-        """Adds a path to the ignore list and removes existing state for it."""
-        if not path or path in STD_PATHS.values() or path in self.ignored_paths:
+        """Adds a path to the ignore list and removes existing state for it.
+        Standard streams can be ignored explicitly; ignore_all leaves them."""
+        if not path or path in self.ignored_paths:
             return
 
         log.info(f"Adding path to ignore list: {os.fsdecode(path)!r}")
